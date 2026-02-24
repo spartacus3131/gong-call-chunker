@@ -1,16 +1,20 @@
 """Schemas router — manage customer extraction schemas."""
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
+from ..auth import get_current_user
+from ..database import get_db
+from ..models import Customer, User
+from ..schemas import CustomerSchema
 from src.schema_loader import (
     list_customers,
     load_customer_schema,
     save_customer_schema,
 )
-from ..schemas import CustomerSchema
 
 router = APIRouter()
 
@@ -26,15 +30,43 @@ def _validate_slug(slug: str) -> None:
 
 
 @router.get("", response_model=List[Dict[str, str]])
-def list_schemas():
-    """List all available customer schemas."""
-    return list_customers()
+def list_schemas(
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    """List customer schemas owned by the current user."""
+    if not user:
+        # Dev mode: return all from filesystem
+        return list_customers()
+
+    customers = db.query(Customer).filter(Customer.user_id == user.id).all()
+    return [
+        {
+            "slug": c.slug,
+            "display_name": c.name,
+            "config_path": c.config_path,
+        }
+        for c in customers
+    ]
 
 
 @router.get("/{slug}")
-def get_schema(slug: str):
+def get_schema(
+    slug: str,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
     """Get the full extraction schema for a customer."""
     _validate_slug(slug)
+
+    # Verify ownership
+    if user:
+        customer = db.query(Customer).filter(
+            Customer.slug == slug, Customer.user_id == user.id
+        ).first()
+        if not customer:
+            raise HTTPException(404, f"No schema found for: {slug}")
+
     try:
         return load_customer_schema(slug)
     except FileNotFoundError:
@@ -42,31 +74,65 @@ def get_schema(slug: str):
 
 
 @router.put("/{slug}")
-def update_schema(slug: str, body: Dict[str, Any]):
-    """Update a customer's extraction schema.
-
-    Accepts the full schema YAML structure as JSON.
-    Writes back to the YAML file.
-    """
+def update_schema(
+    slug: str,
+    body: Dict[str, Any],
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    """Update a customer's extraction schema."""
     _validate_slug(slug)
+
+    # Verify ownership
+    if user:
+        customer = db.query(Customer).filter(
+            Customer.slug == slug, Customer.user_id == user.id
+        ).first()
+        if not customer:
+            raise HTTPException(404, f"No schema found for: {slug}")
+
     body["customer"] = slug
     path = save_customer_schema(slug, body)
     return {"saved": True, "path": str(path)}
 
 
 @router.post("")
-def create_schema(body: Dict[str, Any]):
+def create_schema(
+    body: Dict[str, Any],
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
     """Create a new customer schema."""
     slug = body.get("customer")
     if not slug:
         raise HTTPException(400, "customer slug is required")
     _validate_slug(slug)
 
-    try:
-        load_customer_schema(slug)
-        raise HTTPException(409, f"Schema already exists for: {slug}")
-    except FileNotFoundError:
-        pass
+    # Check uniqueness within user's schemas
+    if user:
+        existing = db.query(Customer).filter(
+            Customer.slug == slug, Customer.user_id == user.id
+        ).first()
+        if existing:
+            raise HTTPException(409, f"Schema already exists for: {slug}")
+    else:
+        try:
+            load_customer_schema(slug)
+            raise HTTPException(409, f"Schema already exists for: {slug}")
+        except FileNotFoundError:
+            pass
 
+    # Save YAML file
     path = save_customer_schema(slug, body)
+
+    # Create Customer DB record
+    customer = Customer(
+        user_id=user.id if user else None,
+        name=body.get("display_name", slug),
+        slug=slug,
+        config_path=str(path),
+    )
+    db.add(customer)
+    db.commit()
+
     return {"created": True, "slug": slug, "path": str(path)}

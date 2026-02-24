@@ -3,14 +3,22 @@
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, cast, func, String
+from sqlalchemy import and_, cast, String
 from sqlalchemy.orm import Session
 
+from ..auth import get_current_user
 from ..database import get_db
-from ..models import Call, CallChunk, CallField, CallSummary, Customer
+from ..models import Call, CallChunk, CallField, Customer, User
 from ..schemas import CallOut, ChunkOut, SearchRequest, SearchResult
 
 router = APIRouter()
+
+
+def _user_customer_ids(db: Session, user: Optional[User]):
+    """Get subquery of customer IDs belonging to the current user."""
+    if not user:
+        return db.query(Customer.id)
+    return db.query(Customer.id).filter(Customer.user_id == user.id)
 
 
 @router.get("/call/{call_id}", response_model=List[ChunkOut])
@@ -18,8 +26,17 @@ def get_chunks_for_call(
     call_id: str,
     level: Optional[str] = None,
     db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
 ):
     """Get all chunks for a specific call, optionally filtered by level."""
+    # Verify call belongs to user
+    call = db.query(Call).filter(
+        Call.id == call_id,
+        Call.customer_id.in_(_user_customer_ids(db, user)),
+    ).first()
+    if not call:
+        return []
+
     query = db.query(CallChunk).filter(CallChunk.call_id == call_id)
     if level:
         query = query.filter(CallChunk.level == level)
@@ -27,30 +44,29 @@ def get_chunks_for_call(
 
 
 @router.post("/search", response_model=SearchResult)
-def search_calls(body: SearchRequest, db: Session = Depends(get_db)):
-    """Search calls by text query and/or field filters.
+def search_calls(
+    body: SearchRequest,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    """Search calls by text query and/or field filters."""
+    query = db.query(Call).filter(
+        Call.customer_id.in_(_user_customer_ids(db, user))
+    )
 
-    Supports:
-    - Full-text search across transcript content and chunk content
-    - Field-based filtering (e.g., restaurant_type=fine_dining, pain_points contains "inventory_waste")
-    - Customer filtering
-    """
-    query = db.query(Call)
-
-    # Customer filter
     if body.customer_slug:
-        customer = db.query(Customer).filter(Customer.slug == body.customer_slug).first()
+        cust_query = db.query(Customer).filter(Customer.slug == body.customer_slug)
+        if user:
+            cust_query = cust_query.filter(Customer.user_id == user.id)
+        customer = cust_query.first()
         if customer:
             query = query.filter(Call.customer_id == customer.id)
 
-    # Text search across transcript
     if body.query:
         query = query.filter(Call.raw_transcript.ilike(f"%{body.query}%"))
 
-    # Field-based filters
     if body.filters:
         for field_name, field_value in body.filters.items():
-            # Join CallField and filter
             query = query.filter(
                 Call.id.in_(
                     db.query(CallField.call_id).filter(
@@ -74,15 +90,24 @@ def search_quotes(
     customer_slug: Optional[str] = None,
     limit: int = 20,
     db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
 ):
     """Search across all extracted quotes."""
+    user_call_ids = db.query(Call.id).filter(
+        Call.customer_id.in_(_user_customer_ids(db, user))
+    )
+
     query = db.query(CallChunk).filter(
         CallChunk.level == "quotes",
+        CallChunk.call_id.in_(user_call_ids),
         cast(CallChunk.content["quote"], String).ilike(f"%{q}%"),
     )
 
     if customer_slug:
-        customer = db.query(Customer).filter(Customer.slug == customer_slug).first()
+        cust_query = db.query(Customer).filter(Customer.slug == customer_slug)
+        if user:
+            cust_query = cust_query.filter(Customer.user_id == user.id)
+        customer = cust_query.first()
         if customer:
             call_ids = db.query(Call.id).filter(Call.customer_id == customer.id)
             query = query.filter(CallChunk.call_id.in_(call_ids))
@@ -101,20 +126,12 @@ def search_quotes(
 
 
 def _field_value_matches(value: Any):
-    """Build a JSONB match condition for field values.
-
-    Handles:
-    - Exact match for strings/numbers/booleans
-    - Contains match for lists (e.g., pain_points contains "inventory_waste")
-    """
+    """Build a JSONB match condition for field values."""
     if isinstance(value, list):
-        # Any item in the list matches
         conditions = []
         for item in value:
             conditions.append(
                 cast(CallField.field_value, String).ilike(f"%{item}%")
             )
         return conditions[0] if len(conditions) == 1 else and_(*conditions)
-
-    # Exact JSONB match
     return CallField.field_value == value

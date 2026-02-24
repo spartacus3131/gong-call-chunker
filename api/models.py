@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -21,15 +22,34 @@ def _uuid():
     return str(uuid.uuid4())
 
 
-class Customer(Base):
-    __tablename__ = "customers"
+class User(Base):
+    __tablename__ = "users"
 
     id = Column(String, primary_key=True, default=_uuid)
+    google_id = Column(String, unique=True, nullable=False)
+    email = Column(String, unique=True, nullable=False)
     name = Column(String, nullable=False)
-    slug = Column(String, unique=True, nullable=False)
+    picture = Column(String, nullable=True)
+    has_completed_onboarding = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    customers = relationship("Customer", back_populates="user")
+
+
+class Customer(Base):
+    __tablename__ = "customers"
+    __table_args__ = (
+        UniqueConstraint("user_id", "slug", name="uq_customer_user_slug"),
+    )
+
+    id = Column(String, primary_key=True, default=_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)  # nullable for legacy/seed data
+    name = Column(String, nullable=False)
+    slug = Column(String, nullable=False)
     config_path = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    user = relationship("User", back_populates="customers")
     calls = relationship("Call", back_populates="customer")
 
 

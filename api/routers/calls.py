@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
+from ..auth import get_current_user
 from ..database import get_db
-from ..models import Call, CallChunk, CallField, CallSummary, Customer
+from ..models import Call, CallChunk, CallField, CallSummary, Customer, User
 from ..schemas import CallCreate, CallDetail, CallOut, GongSyncRequest
 from src.call_chunker import CallChunker
 from src.schema_loader import list_customers
@@ -18,8 +19,11 @@ from src.transcript_parser import normalize_transcript
 router = APIRouter()
 
 
-def _get_or_create_customer(db: Session, slug: str) -> Customer:
-    customer = db.query(Customer).filter(Customer.slug == slug).first()
+def _get_or_create_customer(db: Session, slug: str, user: Optional[User] = None) -> Customer:
+    query = db.query(Customer).filter(Customer.slug == slug)
+    if user:
+        query = query.filter(Customer.user_id == user.id)
+    customer = query.first()
     if customer:
         return customer
 
@@ -30,6 +34,7 @@ def _get_or_create_customer(db: Session, slug: str) -> Customer:
 
     cfg = configs[slug]
     customer = Customer(
+        user_id=user.id if user else None,
         name=cfg["display_name"],
         slug=slug,
         config_path=cfg["config_path"],
@@ -40,32 +45,58 @@ def _get_or_create_customer(db: Session, slug: str) -> Customer:
     return customer
 
 
+def _user_customer_ids(db: Session, user: Optional[User]):
+    """Get subquery of customer IDs belonging to the current user."""
+    if not user:
+        return db.query(Customer.id)  # Dev mode: all customers
+    return db.query(Customer.id).filter(Customer.user_id == user.id)
+
+
 @router.get("", response_model=List[CallOut])
 def list_calls(
     customer_slug: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
 ):
-    query = db.query(Call).order_by(desc(Call.date))
+    query = db.query(Call).filter(
+        Call.customer_id.in_(_user_customer_ids(db, user))
+    ).order_by(desc(Call.date))
+
     if customer_slug:
-        customer = db.query(Customer).filter(Customer.slug == customer_slug).first()
+        cust_query = db.query(Customer).filter(Customer.slug == customer_slug)
+        if user:
+            cust_query = cust_query.filter(Customer.user_id == user.id)
+        customer = cust_query.first()
         if customer:
             query = query.filter(Call.customer_id == customer.id)
+
     return query.offset(offset).limit(limit).all()
 
 
 @router.get("/{call_id}", response_model=CallDetail)
-def get_call(call_id: str, db: Session = Depends(get_db)):
-    call = db.query(Call).filter(Call.id == call_id).first()
+def get_call(
+    call_id: str,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    call = db.query(Call).filter(
+        Call.id == call_id,
+        Call.customer_id.in_(_user_customer_ids(db, user)),
+    ).first()
     if not call:
         raise HTTPException(404, "Call not found")
     return call
 
 
 @router.post("", response_model=CallOut)
-def create_call(body: CallCreate, db: Session = Depends(get_db)):
-    customer = _get_or_create_customer(db, body.customer_slug)
+def create_call(
+    body: CallCreate,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    customer = _get_or_create_customer(db, body.customer_slug, user)
     call = Call(
         customer_id=customer.id,
         gong_call_id=body.gong_call_id,
@@ -88,18 +119,11 @@ async def upload_transcript(
     title: str = Form(...),
     date: str = Form(...),
     db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
 ):
     """Upload a transcript file (JSON, CSV, or plain text)."""
     content = (await file.read()).decode("utf-8")
-    customer = _get_or_create_customer(db, customer_slug)
-
-    # Detect format from filename
-    format_hint = None
-    if file.filename:
-        if file.filename.endswith(".csv"):
-            format_hint = "csv"
-        elif file.filename.endswith(".json"):
-            format_hint = "json"
+    customer = _get_or_create_customer(db, customer_slug, user)
 
     call = Call(
         customer_id=customer.id,
@@ -115,9 +139,16 @@ async def upload_transcript(
 
 
 @router.post("/{call_id}/chunk", response_model=CallDetail)
-def chunk_call(call_id: str, db: Session = Depends(get_db)):
+def chunk_call(
+    call_id: str,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
     """Process a call through the chunking engine."""
-    call = db.query(Call).filter(Call.id == call_id).first()
+    call = db.query(Call).filter(
+        Call.id == call_id,
+        Call.customer_id.in_(_user_customer_ids(db, user)),
+    ).first()
     if not call:
         raise HTTPException(404, "Call not found")
 
@@ -131,7 +162,6 @@ def chunk_call(call_id: str, db: Session = Depends(get_db)):
     db.commit()
 
     try:
-        # Run chunker
         chunker = CallChunker()
         entries = normalize_transcript("paste", call.raw_transcript)
         result = chunker.chunk_call(
@@ -194,8 +224,15 @@ def chunk_call(call_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/{call_id}")
-def delete_call(call_id: str, db: Session = Depends(get_db)):
-    call = db.query(Call).filter(Call.id == call_id).first()
+def delete_call(
+    call_id: str,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    call = db.query(Call).filter(
+        Call.id == call_id,
+        Call.customer_id.in_(_user_customer_ids(db, user)),
+    ).first()
     if not call:
         raise HTTPException(404, "Call not found")
     db.delete(call)
@@ -204,16 +241,16 @@ def delete_call(call_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/sync/gong")
-async def sync_gong(body: GongSyncRequest, db: Session = Depends(get_db)):
-    """Pull calls from Gong API and store them.
-
-    Resilient sync: commits in batches, skips failed transcript fetches,
-    respects Gong rate limits, and reports per-call errors.
-    """
+async def sync_gong(
+    body: GongSyncRequest,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    """Pull calls from Gong API and store them."""
     import asyncio
     from src.gong_client import GongClient
 
-    customer = _get_or_create_customer(db, body.customer_slug)
+    customer = _get_or_create_customer(db, body.customer_slug, user)
     client = GongClient()
     calls = await client.sync_calls(body.from_date, body.to_date)
 
@@ -227,13 +264,11 @@ async def sync_gong(body: GongSyncRequest, db: Session = Depends(get_db)):
         if not gong_id:
             continue
 
-        # Skip if already imported
         existing = db.query(Call).filter(Call.gong_call_id == gong_id).first()
         if existing:
             skipped += 1
             continue
 
-        # Fetch transcript with error recovery
         try:
             transcript_data = await client.get_call_transcript(gong_id)
         except Exception as e:
@@ -257,14 +292,11 @@ async def sync_gong(body: GongSyncRequest, db: Session = Depends(get_db)):
         db.add(call)
         created += 1
 
-        # Batch commit to preserve progress
         if created % BATCH_SIZE == 0:
             db.commit()
 
-        # Respect Gong rate limits (~3 requests/sec)
         await asyncio.sleep(0.35)
 
-    # Final commit for remaining
     db.commit()
 
     return {

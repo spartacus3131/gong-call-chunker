@@ -4,6 +4,10 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
   });
+  if (res.status === 401) {
+    window.location.href = "/api/auth/signin";
+    throw new Error("Unauthorized");
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API error ${res.status}: ${body}`);
@@ -12,6 +16,15 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // --- Types ---
+
+export interface UserInfo {
+  id: string | null;
+  email: string;
+  name: string;
+  picture: string | null;
+  has_completed_onboarding: boolean;
+  authenticated: boolean;
+}
 
 export interface CallOut {
   id: string;
@@ -66,13 +79,46 @@ export interface AnalyticsOverview {
 export interface CustomerConfig {
   slug: string;
   display_name: string;
-  industry: string;
   config_path: string;
+}
+
+export interface IndustryTemplate {
+  key: string;
+  display_name: string;
+  industry: string;
+  field_count: number;
+}
+
+export interface TemplateDetail {
+  display_name: string;
+  industry: string;
+  fields: {
+    name: string;
+    type: string;
+    description?: string;
+    options?: string[];
+    examples?: string[];
+  }[];
 }
 
 // --- API Functions ---
 
 export const api = {
+  // User
+  getMe: () => fetchAPI<UserInfo>("/api/v1/me"),
+
+  updateMe: (data: { has_completed_onboarding?: boolean; name?: string }) =>
+    fetchAPI("/api/v1/me", {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  // Templates
+  listTemplates: () => fetchAPI<IndustryTemplate[]>("/api/v1/templates"),
+
+  getTemplate: (industry: string) =>
+    fetchAPI<TemplateDetail>(`/api/v1/templates/${industry}`),
+
   // Calls
   listCalls: (customerSlug?: string) =>
     fetchAPI<CallOut[]>(

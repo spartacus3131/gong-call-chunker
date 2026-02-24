@@ -1,45 +1,60 @@
-"""API key authentication middleware."""
+"""JWT authentication — validates tokens issued by next-auth."""
 
 import os
 from typing import Optional
 
 from fastapi import Depends, HTTPException, Security
-from fastapi.security import APIKeyHeader
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from sqlalchemy.orm import Session
 
-API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
+from .database import get_db
+from .models import User
 
-# Comma-separated list of valid API keys. If not set, auth is disabled (dev mode).
-_API_KEYS: Optional[str] = os.environ.get("API_KEYS")
+NEXTAUTH_SECRET = os.environ.get("NEXTAUTH_SECRET", "")
+ALGORITHM = "HS256"
 
-
-def get_api_keys() -> set:
-    if not _API_KEYS:
-        return set()
-    return {k.strip() for k in _API_KEYS.split(",") if k.strip()}
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def require_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
-    """Dependency that enforces API key auth.
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """Decode next-auth JWT, find or create user, return User ORM object.
 
-    If API_KEYS env var is not set, auth is disabled (development mode).
-    If set, requests must include a valid X-API-Key header.
+    If NEXTAUTH_SECRET is not set (dev mode), returns None and all
+    endpoints work without auth (backward compatible).
     """
-    valid_keys = get_api_keys()
+    if not NEXTAUTH_SECRET:
+        return None  # Dev mode: no auth required
 
-    # Dev mode: no keys configured, allow all
-    if not valid_keys:
-        return None
+    if not credentials:
+        raise HTTPException(401, "Missing Authorization header")
 
-    if not api_key:
-        raise HTTPException(
-            status_code=401,
-            detail="Missing X-API-Key header",
+    try:
+        payload = jwt.decode(
+            credentials.credentials, NEXTAUTH_SECRET, algorithms=[ALGORITHM]
         )
+    except JWTError:
+        raise HTTPException(401, "Invalid token")
 
-    if api_key not in valid_keys:
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid API key",
+    google_id = payload.get("sub")
+    email = payload.get("email")
+    if not google_id or not email:
+        raise HTTPException(401, "Token missing required claims")
+
+    # Find or create user
+    user = db.query(User).filter(User.google_id == google_id).first()
+    if not user:
+        user = User(
+            google_id=google_id,
+            email=email,
+            name=payload.get("name", email),
+            picture=payload.get("picture"),
         )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
 
-    return api_key
+    return user
