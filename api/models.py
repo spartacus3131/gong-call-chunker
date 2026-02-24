@@ -1,0 +1,95 @@
+import uuid
+from datetime import datetime
+
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
+
+from .database import Base
+
+
+def _uuid():
+    return str(uuid.uuid4())
+
+
+class Customer(Base):
+    __tablename__ = "customers"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    name = Column(String, nullable=False)
+    slug = Column(String, unique=True, nullable=False)
+    config_path = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    calls = relationship("Call", back_populates="customer")
+
+
+class Call(Base):
+    __tablename__ = "calls"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    customer_id = Column(String, ForeignKey("customers.id"), nullable=False)
+    gong_call_id = Column(String, nullable=True, unique=True)
+    title = Column(String, nullable=False)
+    date = Column(DateTime, nullable=False)
+    duration_seconds = Column(Integer, nullable=True)
+    participants = Column(JSONB, default=list)
+    raw_transcript = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="pending")  # pending, processing, chunked, failed
+    error_message = Column(Text, nullable=True)
+    processed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    customer = relationship("Customer", back_populates="calls")
+    chunks = relationship("CallChunk", back_populates="call", cascade="all, delete-orphan")
+    fields = relationship("CallField", back_populates="call", cascade="all, delete-orphan")
+    summary = relationship("CallSummary", back_populates="call", uselist=False, cascade="all, delete-orphan")
+
+
+class CallChunk(Base):
+    __tablename__ = "call_chunks"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    call_id = Column(String, ForeignKey("calls.id", ondelete="CASCADE"), nullable=False)
+    level = Column(String, nullable=False)  # "topics", "insights", "quotes"
+    content = Column(JSONB, nullable=False)
+    timestamp_start = Column(String, nullable=True)
+    timestamp_end = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    call = relationship("Call", back_populates="chunks")
+
+
+class CallField(Base):
+    __tablename__ = "call_fields"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    call_id = Column(String, ForeignKey("calls.id", ondelete="CASCADE"), nullable=False)
+    field_name = Column(String, nullable=False)
+    field_value = Column(JSONB, nullable=False)
+    field_type = Column(String, nullable=False)  # "enum", "text", "integer", "boolean", "list"
+
+    call = relationship("Call", back_populates="fields")
+
+
+class CallSummary(Base):
+    __tablename__ = "call_summaries"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    call_id = Column(String, ForeignKey("calls.id", ondelete="CASCADE"), unique=True, nullable=False)
+    overall_sentiment = Column(String, nullable=True)
+    deal_likelihood = Column(Float, nullable=True)
+    next_steps = Column(JSONB, default=list)
+    follow_up_date = Column(String, nullable=True)
+    summary_text = Column(Text, nullable=True)
+
+    call = relationship("Call", back_populates="summary")

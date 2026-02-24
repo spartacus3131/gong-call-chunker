@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gong
+      POSTGRES_PASSWORD: gong
+      POSTGRES_DB: gong_chunker
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://gong:gong@db:5432/gong_chunker
+      ALLOWED_ORIGINS: http://localhost:3000
+    env_file:
+      - .env
+    depends_on:
+      - db
+    volumes:
+      - ./api:/app/api
+      - ./src:/app/src
+      - ./config:/app/config
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

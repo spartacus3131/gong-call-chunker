@@ -1,0 +1,57 @@
+# Default chunking schema — applied to all customers as a base.
+# Customer-specific configs in customers/ override and extend these.
+
+customer: default
+display_name: "Default"
+industry: general
+
+extraction_schema:
+  fields:
+    - name: call_type
+      type: enum
+      options: [discovery, demo, follow_up, negotiation, onboarding, support]
+      description: "Type of sales call"
+
+    - name: buying_stage
+      type: enum
+      options: [early_research, evaluating, decision_ready, negotiating]
+      description: "Where the prospect is in their buying journey"
+
+    - name: decision_maker
+      type: boolean
+      description: "Is the person on the call the decision maker?"
+
+    - name: pain_points
+      type: list
+      description: "Specific pain points mentioned during the call"
+
+    - name: competitor_mentions
+      type: list
+      description: "Competitor products or services mentioned"
+
+    - name: budget_mentioned
+      type: boolean
+      description: "Was budget or pricing discussed?"
+
+    - name: timeline
+      type: text
+      description: "When they want to make a decision or go live"
+
+  chunk_levels:
+    - level: topics
+      description: "Major discussion topics (5-8 per call)"
+      extract: [title, timestamp_start, timestamp_end, summary, relevance_to_sale]
+
+    - level: insights
+      description: "Specific customer insights within topics (2-3 per topic)"
+      extract: [parent_topic, insight, sentiment, action_item]
+
+    - level: quotes
+      description: "Verbatim notable quotes (5-10 per call)"
+      extract: [quote, speaker, context, sentiment, tags]
+
+  call_summary:
+    - overall_sentiment
+    - deal_likelihood
+    - next_steps
+    - follow_up_date

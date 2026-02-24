@@ -1,0 +1,124 @@
+# TouchBistro POS — Restaurant Technology
+# Extracts restaurant-specific intelligence from sales calls.
+
+customer: touchbistro
+display_name: "TouchBistro POS"
+industry: restaurant_technology
+
+extraction_schema:
+  fields:
+    # --- Restaurant profile ---
+    - name: restaurant_size
+      type: enum
+      options: [small, medium, large, enterprise]
+      description: "Size based on locations and seats. Small: 1 location <50 seats. Medium: 1-3 locations. Large: 4-10. Enterprise: 10+."
+
+    - name: restaurant_type
+      type: enum
+      options: [fast_casual, fine_dining, qsr, bar_nightclub, cafe, food_truck, catering, ghost_kitchen, hotel_restaurant, multi_concept]
+      description: "Type of restaurant operation"
+
+    - name: location_count
+      type: integer
+      description: "Number of locations the prospect operates"
+
+    - name: seat_count
+      type: integer
+      description: "Approximate number of seats per location"
+
+    # --- Technology & operations ---
+    - name: current_pos
+      type: text
+      description: "Current POS system they're using (Square, Toast, Clover, Lightspeed, etc.)"
+
+    - name: current_tech_stack
+      type: list
+      description: "Other technology they use (reservation system, delivery platform, accounting, etc.)"
+
+    - name: integration_needs
+      type: list
+      description: "Specific integrations they need (DoorDash, UberEats, QuickBooks, 7shifts, etc.)"
+
+    # --- Pain points & needs ---
+    - name: pain_points
+      type: list
+      description: "Specific pain points mentioned"
+      examples:
+        - staff_scheduling
+        - inventory_waste
+        - slow_checkout
+        - reporting_gaps
+        - integration_issues
+        - table_management
+        - online_ordering
+        - payment_processing_fees
+        - menu_management
+        - kitchen_display
+
+    - name: feature_interests
+      type: list
+      description: "TouchBistro features they're most interested in"
+      examples:
+        - tableside_ordering
+        - kitchen_display
+        - inventory_management
+        - staff_management
+        - online_ordering
+        - reservations
+        - loyalty_program
+        - analytics_reporting
+
+    # --- Buying context ---
+    - name: call_type
+      type: enum
+      options: [discovery, demo, follow_up, negotiation, onboarding, support]
+      description: "Type of sales call"
+
+    - name: buying_stage
+      type: enum
+      options: [early_research, evaluating, decision_ready, negotiating]
+      description: "Where the prospect is in their buying journey"
+
+    - name: decision_maker
+      type: boolean
+      description: "Is the person on the call the decision maker?"
+
+    - name: decision_maker_title
+      type: text
+      description: "Title/role of the decision maker (owner, GM, ops manager, etc.)"
+
+    - name: budget_mentioned
+      type: boolean
+      description: "Was budget or pricing discussed?"
+
+    - name: competitor_mentions
+      type: list
+      description: "Other POS systems or solutions mentioned"
+      examples: [square, toast, clover, lightspeed, revel, aloha, micros, upserve]
+
+    - name: timeline
+      type: text
+      description: "When they want to make a decision or switch"
+
+    - name: switching_reason
+      type: text
+      description: "Primary reason they're considering switching from current system"
+
+  chunk_levels:
+    - level: topics
+      description: "Major discussion topics (5-8 per call)"
+      extract: [title, timestamp_start, timestamp_end, summary, relevance_to_sale]
+
+    - level: insights
+      description: "Specific customer insights within topics (2-3 per topic)"
+      extract: [parent_topic, insight, sentiment, action_item]
+
+    - level: quotes
+      description: "Verbatim notable quotes (5-10 per call)"
+      extract: [quote, speaker, context, sentiment, tags]
+
+  call_summary:
+    - overall_sentiment
+    - deal_likelihood
+    - next_steps
+    - follow_up_date
