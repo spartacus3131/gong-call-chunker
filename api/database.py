@@ -7,6 +7,10 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgresql://gong:gong@localhost:5432/gong_chunker"
 )
 
+# Railway (and others) may provide postgres:// but SQLAlchemy requires postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 

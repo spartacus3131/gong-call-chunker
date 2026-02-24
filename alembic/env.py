@@ -20,6 +20,9 @@ target_metadata = Base.metadata
 # Override URL from env if available
 url = os.environ.get("DATABASE_URL")
 if url:
+    # Railway (and others) may provide postgres:// but SQLAlchemy requires postgresql://
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
     config.set_main_option("sqlalchemy.url", url)
 
 

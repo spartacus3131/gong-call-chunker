@@ -17,4 +17,4 @@ COPY scripts/ scripts/
 # Railway provides PORT env var, default to 8000
 ENV PORT=8000
 
-CMD alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port ${PORT}
+CMD echo "DATABASE_URL is set: $([ -n \"$DATABASE_URL\" ] && echo YES || echo NO)" && alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port ${PORT}
