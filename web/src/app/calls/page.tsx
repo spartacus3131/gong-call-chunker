@@ -5,14 +5,14 @@ import Link from "next/link";
 import { api, CallOut, CustomerConfig } from "@/lib/api";
 
 function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    pending: "bg-yellow-100 text-yellow-700",
-    processing: "bg-blue-100 text-blue-700",
-    chunked: "bg-green-100 text-green-700",
-    failed: "bg-red-100 text-red-700",
+  const cls: Record<string, string> = {
+    pending: "ff-badge-pending",
+    processing: "ff-badge-processing",
+    chunked: "ff-badge-chunked",
+    failed: "ff-badge-failed",
   };
   return (
-    <span className={`px-2 py-0.5 rounded text-xs capitalize ${styles[status] || "bg-gray-100 text-gray-600"}`}>
+    <span className={`ff-badge ${cls[status] || "ff-badge-pending"} capitalize`}>
       {status}
     </span>
   );
@@ -25,7 +25,6 @@ export default function CallsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // Upload state
   const [showUpload, setShowUpload] = useState(false);
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadDate, setUploadDate] = useState(
@@ -81,15 +80,16 @@ export default function CallsPage() {
     }
   };
 
-  if (loading) return <p className="text-gray-500">Loading...</p>;
+  if (loading)
+    return <p className="text-mako-500 animate-pulse">Loading...</p>;
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Calls</h1>
+        <h1 className="text-2xl font-bold text-ff-text-bright">Calls</h1>
         <button
           onClick={() => setShowUpload(!showUpload)}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+          className={showUpload ? "ff-btn" : "ff-btn-primary"}
         >
           {showUpload ? "Cancel" : "Upload Transcript"}
         </button>
@@ -97,17 +97,19 @@ export default function CallsPage() {
 
       {/* Upload Form */}
       {showUpload && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="font-semibold mb-4">Upload Call Transcript</h2>
+        <div className="ff-panel-glow p-6 mb-6">
+          <h2 className="text-ff-text-bright font-semibold mb-4">
+            Upload Call Transcript
+          </h2>
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div>
-              <label className="block text-sm text-gray-600 mb-1">
+              <label className="block text-xs text-ff-text/50 mb-1 uppercase tracking-wider">
                 Customer
               </label>
               <select
                 value={uploadCustomer}
                 onChange={(e) => setUploadCustomer(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
+                className="ff-select w-full"
               >
                 {schemas.map((s) => (
                   <option key={s.slug} value={s.slug}>
@@ -117,39 +119,43 @@ export default function CallsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm text-gray-600 mb-1">Title</label>
+              <label className="block text-xs text-ff-text/50 mb-1 uppercase tracking-wider">
+                Title
+              </label>
               <input
                 value={uploadTitle}
                 onChange={(e) => setUploadTitle(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
+                className="ff-input"
                 placeholder="Discovery call with Mario's Pizza"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600 mb-1">Date</label>
+              <label className="block text-xs text-ff-text/50 mb-1 uppercase tracking-wider">
+                Date
+              </label>
               <input
                 type="date"
                 value={uploadDate}
                 onChange={(e) => setUploadDate(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
+                className="ff-input"
               />
             </div>
           </div>
           <div className="mb-4">
-            <label className="block text-sm text-gray-600 mb-1">
+            <label className="block text-xs text-ff-text/50 mb-1 uppercase tracking-wider">
               Transcript
             </label>
             <textarea
               value={uploadTranscript}
               onChange={(e) => setUploadTranscript(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm h-48 font-mono"
-              placeholder="Paste call transcript here... (supports Speaker: text, [timestamp] Speaker: text, or plain text)"
+              className="ff-input h-48"
+              placeholder="Paste call transcript here..."
             />
           </div>
           <button
             onClick={handleUpload}
             disabled={uploading || !uploadTitle || !uploadTranscript}
-            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm disabled:opacity-50"
+            className="ff-btn-primary disabled:opacity-40"
           >
             {uploading ? "Uploading..." : "Upload"}
           </button>
@@ -162,15 +168,13 @@ export default function CallsPage() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          className="flex-1 border rounded px-3 py-2 text-sm"
+          className="ff-input flex-1"
           placeholder="Search transcripts..."
         />
         <select
           value={selectedCustomer}
-          onChange={(e) => {
-            setSelectedCustomer(e.target.value);
-          }}
-          className="border rounded px-3 py-2 text-sm"
+          onChange={(e) => setSelectedCustomer(e.target.value)}
+          className="ff-select"
         >
           <option value="">All customers</option>
           {schemas.map((s) => (
@@ -179,22 +183,19 @@ export default function CallsPage() {
             </option>
           ))}
         </select>
-        <button
-          onClick={handleSearch}
-          className="px-4 py-2 bg-gray-800 text-white rounded text-sm"
-        >
+        <button onClick={handleSearch} className="ff-btn">
           Search
         </button>
       </div>
 
       {/* Call List */}
-      <div className="bg-white rounded-lg shadow">
+      <div className="ff-panel">
         {calls.length === 0 ? (
-          <p className="text-gray-500 text-sm p-6">No calls found.</p>
+          <p className="text-ff-text/50 text-sm p-6">No calls found.</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-500 border-b">
+              <tr className="text-left text-ff-text/40 border-b border-ff-border text-xs uppercase tracking-wider">
                 <th className="p-4">Title</th>
                 <th className="p-4">Date</th>
                 <th className="p-4">Participants</th>
@@ -205,25 +206,30 @@ export default function CallsPage() {
               {calls.map((call) => (
                 <tr
                   key={call.id}
-                  className="border-b last:border-0 hover:bg-gray-50"
+                  className="border-b border-ff-border/30 last:border-0 hover:bg-mako-500/5"
                 >
                   <td className="p-4">
                     <Link
                       href={`/calls/${call.id}`}
-                      className="text-blue-600 hover:underline"
+                      className="text-ff-blue hover:text-mako-400"
                     >
                       {call.title}
                     </Link>
                   </td>
-                  <td className="p-4 text-gray-500">
+                  <td className="p-4 text-ff-text/50">
                     {new Date(call.date).toLocaleDateString()}
                   </td>
-                  <td className="p-4 text-gray-500">
+                  <td className="p-4 text-ff-text/50">
                     {call.participants.slice(0, 3).join(", ")}
                     {call.participants.length > 3 && "..."}
                   </td>
                   <td className="p-4">
-                    <StatusBadge status={(call as any).status || (call.processed_at ? "chunked" : "pending")} />
+                    <StatusBadge
+                      status={
+                        (call as any).status ||
+                        (call.processed_at ? "chunked" : "pending")
+                      }
+                    />
                   </td>
                 </tr>
               ))}

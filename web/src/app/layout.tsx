@@ -8,10 +8,10 @@ export const metadata: Metadata = {
 };
 
 const navItems = [
-  { href: "/", label: "Dashboard" },
-  { href: "/calls", label: "Calls" },
-  { href: "/schemas", label: "Schemas" },
-  { href: "/analytics", label: "Analytics" },
+  { href: "/", label: "Dashboard", icon: ">" },
+  { href: "/calls", label: "Calls", icon: ">" },
+  { href: "/schemas", label: "Schemas", icon: ">" },
+  { href: "/analytics", label: "Analytics", icon: ">" },
 ];
 
 export default function RootLayout({
@@ -21,24 +21,33 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-gray-50 text-gray-900">
+      <body>
         <div className="flex min-h-screen">
-          {/* Sidebar */}
-          <nav className="w-56 bg-gray-900 text-white flex flex-col p-4 gap-1">
-            <h1 className="text-lg font-bold mb-6 px-3">Call Chunker</h1>
+          {/* FF7-style sidebar */}
+          <nav className="w-56 bg-ff-panel border-r border-ff-border flex flex-col p-4 gap-1">
+            <div className="mb-6 px-3">
+              <h1 className="text-mako-400 font-bold text-lg tracking-wide">
+                CALL CHUNKER
+              </h1>
+              <div className="h-px bg-gradient-to-r from-mako-500/50 to-transparent mt-2" />
+            </div>
             {navItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="px-3 py-2 rounded hover:bg-gray-800 transition-colors text-sm"
+                className="px-3 py-2 rounded text-sm text-ff-text hover:text-mako-400 hover:bg-mako-500/5 transition-colors flex items-center gap-2"
               >
+                <span className="text-mako-600 text-xs">{item.icon}</span>
                 {item.label}
               </Link>
             ))}
+            <div className="mt-auto pt-4 border-t border-ff-border/50">
+              <p className="text-[10px] text-ff-text/30 px-3">v1.0 // MAKO POWERED</p>
+            </div>
           </nav>
 
           {/* Main content */}
-          <main className="flex-1 p-8">{children}</main>
+          <main className="flex-1 p-8 overflow-auto">{children}</main>
         </div>
       </body>
     </html>

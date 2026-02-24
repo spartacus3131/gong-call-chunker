@@ -1,3 +1,77 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@layer base {
+  body {
+    @apply bg-ff-dark text-ff-text font-mono;
+  }
+
+  /* FF7-style scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-ff-dark;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-ff-border rounded;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ff-border-light;
+  }
+}
+
+@layer components {
+  /* FF7 menu panel */
+  .ff-panel {
+    @apply bg-ff-panel border border-ff-border rounded-lg shadow-ff;
+  }
+
+  /* Glowing panel (for important sections) */
+  .ff-panel-glow {
+    @apply bg-ff-panel border border-mako-500/30 rounded-lg shadow-ff-glow;
+  }
+
+  /* FF7-style button */
+  .ff-btn {
+    @apply px-4 py-2 bg-ff-border text-ff-text-bright rounded border border-ff-border-light
+           hover:bg-ff-border-light hover:border-mako-500/50 hover:text-white
+           transition-all duration-200 text-sm font-medium;
+  }
+
+  .ff-btn-primary {
+    @apply px-4 py-2 bg-mako-700 text-mako-100 rounded border border-mako-500/50
+           hover:bg-mako-600 hover:shadow-ff-glow
+           transition-all duration-200 text-sm font-medium;
+  }
+
+  .ff-btn-danger {
+    @apply px-4 py-2 bg-ff-red/10 text-ff-red rounded border border-ff-red/30
+           hover:bg-ff-red/20 hover:border-ff-red/50
+           transition-all duration-200 text-sm font-medium;
+  }
+
+  /* FF7-style input */
+  .ff-input {
+    @apply w-full bg-ff-dark border border-ff-border rounded px-3 py-2 text-sm text-ff-text-bright
+           focus:outline-none focus:border-mako-500/50 focus:ring-1 focus:ring-mako-500/20
+           placeholder:text-ff-text/40;
+  }
+
+  .ff-select {
+    @apply bg-ff-dark border border-ff-border rounded px-3 py-2 text-sm text-ff-text-bright
+           focus:outline-none focus:border-mako-500/50;
+  }
+
+  /* Status badges */
+  .ff-badge {
+    @apply px-2 py-0.5 rounded text-xs font-medium;
+  }
+  .ff-badge-pending { @apply bg-ff-gold/10 text-ff-gold border border-ff-gold/30; }
+  .ff-badge-processing { @apply bg-ff-blue/10 text-ff-blue border border-ff-blue/30; }
+  .ff-badge-chunked { @apply bg-mako-500/10 text-mako-400 border border-mako-500/30; }
+  .ff-badge-failed { @apply bg-ff-red/10 text-ff-red border border-ff-red/30; }
+}
