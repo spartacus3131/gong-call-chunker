@@ -5,7 +5,7 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgresql://gong:gong@localhost:5432/gong_chunker"
-)
+).strip()
 
 # Railway (and others) may provide postgres:// but SQLAlchemy requires postgresql://
 if DATABASE_URL.startswith("postgres://"):
