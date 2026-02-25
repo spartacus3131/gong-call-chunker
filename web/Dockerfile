@@ -3,14 +3,14 @@ FROM node:20-alpine AS base
 # Install dependencies
 FROM base AS deps
 WORKDIR /app
-COPY web/package.json web/package-lock.json* ./
+COPY package.json package-lock.json* ./
 RUN npm ci
 
 # Build the app
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY web/ .
+COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
