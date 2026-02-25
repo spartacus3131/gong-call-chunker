@@ -63,6 +63,8 @@ class Call(Base):
     date = Column(DateTime, nullable=False)
     duration_seconds = Column(Integer, nullable=True)
     participants = Column(JSONB, default=list)
+    rep_name = Column(String, nullable=True)
+    rep_email = Column(String, nullable=True)
     raw_transcript = Column(Text, nullable=False)
     status = Column(String, nullable=False, default="pending")  # pending, processing, chunked, failed
     error_message = Column(Text, nullable=True)

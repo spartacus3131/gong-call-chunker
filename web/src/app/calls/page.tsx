@@ -32,6 +32,7 @@ export default function CallsPage() {
   );
   const [uploadTranscript, setUploadTranscript] = useState("");
   const [uploadCustomer, setUploadCustomer] = useState("");
+  const [uploadRepName, setUploadRepName] = useState("");
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
@@ -67,6 +68,7 @@ export default function CallsPage() {
         title: uploadTitle,
         date: new Date(uploadDate).toISOString(),
         raw_transcript: uploadTranscript,
+        rep_name: uploadRepName || undefined,
       });
       setCalls((prev) => [newCall, ...prev]);
       setShowUpload(false);
@@ -101,7 +103,7 @@ export default function CallsPage() {
           <h2 className="text-ff-text-bright font-semibold mb-4">
             Upload Call Transcript
           </h2>
-          <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-4 gap-4 mb-4">
             <div>
               <label className="block text-xs text-ff-text/50 mb-1 uppercase tracking-wider">
                 Customer
@@ -127,6 +129,17 @@ export default function CallsPage() {
                 onChange={(e) => setUploadTitle(e.target.value)}
                 className="ff-input"
                 placeholder="Discovery call with Mario's Pizza"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-ff-text/50 mb-1 uppercase tracking-wider">
+                Rep Name
+              </label>
+              <input
+                value={uploadRepName}
+                onChange={(e) => setUploadRepName(e.target.value)}
+                className="ff-input"
+                placeholder="e.g. John Smith"
               />
             </div>
             <div>
@@ -198,7 +211,7 @@ export default function CallsPage() {
               <tr className="text-left text-ff-text/40 border-b border-ff-border text-xs uppercase tracking-wider">
                 <th className="p-4">Title</th>
                 <th className="p-4">Date</th>
-                <th className="p-4">Participants</th>
+                <th className="p-4">Rep</th>
                 <th className="p-4">Status</th>
               </tr>
             </thead>
@@ -220,8 +233,7 @@ export default function CallsPage() {
                     {new Date(call.date).toLocaleDateString()}
                   </td>
                   <td className="p-4 text-ff-text/50">
-                    {call.participants.slice(0, 3).join(", ")}
-                    {call.participants.length > 3 && "..."}
+                    {call.rep_name || "—"}
                   </td>
                   <td className="p-4">
                     <StatusBadge

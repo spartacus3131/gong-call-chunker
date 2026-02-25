@@ -34,6 +34,8 @@ export interface CallOut {
   date: string;
   duration_seconds: number | null;
   participants: string[];
+  rep_name: string | null;
+  rep_email: string | null;
   status: string;
   error_message: string | null;
   processed_at: string | null;
@@ -134,6 +136,16 @@ export interface TemplateDetail {
   }[];
 }
 
+// --- Helpers ---
+
+function _analyticsParams(customerSlug?: string, repName?: string): string {
+  const params = new URLSearchParams();
+  if (customerSlug) params.set("customer_slug", customerSlug);
+  if (repName) params.set("rep_name", repName);
+  const str = params.toString();
+  return str ? `?${str}` : "";
+}
+
 // --- API Functions ---
 
 export const api = {
@@ -166,6 +178,7 @@ export const api = {
     date: string;
     raw_transcript: string;
     participants?: string[];
+    rep_name?: string;
   }) =>
     fetchAPI<CallOut>("/api/v1/calls", {
       method: "POST",
@@ -214,52 +227,45 @@ export const api = {
     }),
 
   // Analytics
-  getOverview: (customerSlug?: string) =>
+  getReps: (customerSlug?: string) =>
+    fetchAPI<string[]>(
+      `/api/v1/analytics/reps${
+        customerSlug ? `?customer_slug=${customerSlug}` : ""
+      }`
+    ),
+
+  getOverview: (customerSlug?: string, repName?: string) =>
     fetchAPI<AnalyticsOverview>(
-      `/api/v1/analytics/overview${
-        customerSlug ? `?customer_slug=${customerSlug}` : ""
-      }`
+      `/api/v1/analytics/overview${_analyticsParams(customerSlug, repName)}`
     ),
 
-  getPainPoints: (customerSlug?: string) =>
+  getPainPoints: (customerSlug?: string, repName?: string) =>
     fetchAPI<{ field: string; counts: Record<string, number>; total_calls: number }>(
-      `/api/v1/analytics/pain-points${
-        customerSlug ? `?customer_slug=${customerSlug}` : ""
-      }`
+      `/api/v1/analytics/pain-points${_analyticsParams(customerSlug, repName)}`
     ),
 
-  getCompetitors: (customerSlug?: string) =>
+  getCompetitors: (customerSlug?: string, repName?: string) =>
     fetchAPI<{ field: string; counts: Record<string, number>; total_calls: number }>(
-      `/api/v1/analytics/competitors${
-        customerSlug ? `?customer_slug=${customerSlug}` : ""
-      }`
+      `/api/v1/analytics/competitors${_analyticsParams(customerSlug, repName)}`
     ),
 
-  getDealLikelihood: (customerSlug?: string) =>
+  getDealLikelihood: (customerSlug?: string, repName?: string) =>
     fetchAPI<any>(
-      `/api/v1/analytics/deal-likelihood${
-        customerSlug ? `?customer_slug=${customerSlug}` : ""
-      }`
+      `/api/v1/analytics/deal-likelihood${_analyticsParams(customerSlug, repName)}`
     ),
 
-  getSentiment: (customerSlug?: string) =>
+  getSentiment: (customerSlug?: string, repName?: string) =>
     fetchAPI<any>(
-      `/api/v1/analytics/sentiment${
-        customerSlug ? `?customer_slug=${customerSlug}` : ""
-      }`
+      `/api/v1/analytics/sentiment${_analyticsParams(customerSlug, repName)}`
     ),
 
-  getScorecard: (customerSlug?: string) =>
+  getScorecard: (customerSlug?: string, repName?: string) =>
     fetchAPI<ScorecardOverview>(
-      `/api/v1/analytics/scorecard${
-        customerSlug ? `?customer_slug=${customerSlug}` : ""
-      }`
+      `/api/v1/analytics/scorecard${_analyticsParams(customerSlug, repName)}`
     ),
 
-  getScorecardCorrelation: (customerSlug?: string) =>
+  getScorecardCorrelation: (customerSlug?: string, repName?: string) =>
     fetchAPI<{ correlations: SkillCorrelation[]; total_calls: number }>(
-      `/api/v1/analytics/scorecard/correlation${
-        customerSlug ? `?customer_slug=${customerSlug}` : ""
-      }`
+      `/api/v1/analytics/scorecard/correlation${_analyticsParams(customerSlug, repName)}`
     ),
 };

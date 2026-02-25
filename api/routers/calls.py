@@ -105,6 +105,8 @@ def create_call(
         date=body.date,
         duration_seconds=body.duration_seconds,
         participants=body.participants,
+        rep_name=body.rep_name,
+        rep_email=body.rep_email,
         raw_transcript=body.raw_transcript,
     )
     db.add(call)
@@ -119,6 +121,7 @@ async def upload_transcript(
     customer_slug: str = Form(...),
     title: str = Form(...),
     date: str = Form(...),
+    rep_name: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(get_current_user),
 ):
@@ -131,6 +134,7 @@ async def upload_transcript(
         title=title,
         date=datetime.fromisoformat(date),
         participants=[],
+        rep_name=rep_name,
         raw_transcript=content,
     )
     db.add(call)
@@ -289,6 +293,20 @@ async def sync_gong(
             errors.append({"call_id": gong_id, "error": str(e)})
             continue
 
+        # Infer rep from Gong party affiliation (Internal = your team)
+        parties = gong_call.get("parties", [])
+        rep_name = None
+        rep_email = None
+        for p in parties:
+            if p.get("affiliation", "").lower() == "internal":
+                rep_name = p.get("name") or p.get("emailAddress", "")
+                rep_email = p.get("emailAddress")
+                break
+        # Fallback: use first participant if no affiliation data
+        if not rep_name and parties:
+            rep_name = parties[0].get("name") or parties[0].get("emailAddress", "")
+            rep_email = parties[0].get("emailAddress")
+
         call = Call(
             customer_id=customer.id,
             gong_call_id=gong_id,
@@ -299,8 +317,10 @@ async def sync_gong(
             duration_seconds=gong_call.get("duration"),
             participants=[
                 p.get("name", p.get("emailAddress", ""))
-                for p in gong_call.get("parties", [])
+                for p in parties
             ],
+            rep_name=rep_name,
+            rep_email=rep_email,
             raw_transcript=json.dumps(transcript_data),
         )
         db.add(call)

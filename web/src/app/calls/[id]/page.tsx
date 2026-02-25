@@ -65,8 +65,9 @@ export default function CallDetailPage() {
             {call.title}
           </h1>
           <p className="text-ff-text/50 text-sm mt-1">
-            {new Date(call.date).toLocaleDateString()} &middot;{" "}
-            {call.participants.join(", ") || "No participants listed"}
+            {new Date(call.date).toLocaleDateString()}
+            {call.rep_name && <> &middot; <span className="text-mako-400">{call.rep_name}</span></>}
+            {call.participants.length > 0 && <> &middot; {call.participants.join(", ")}</>}
             {call.duration_seconds &&
               ` \u00B7 ${Math.round(call.duration_seconds / 60)} min`}
           </p>

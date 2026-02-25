@@ -13,19 +13,21 @@ export default function AnalyticsPage() {
   const [sentiment, setSentiment] = useState<any>(null);
   const [scorecard, setScorecard] = useState<ScorecardOverview | null>(null);
   const [correlations, setCorrelations] = useState<SkillCorrelation[]>([]);
+  const [reps, setReps] = useState<string[]>([]);
+  const [selectedRep, setSelectedRep] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
-  const loadData = async (slug?: string) => {
+  const loadData = async (slug?: string, rep?: string) => {
     setLoading(true);
     try {
       const [o, pp, comp, dl, sent, sc, corr] = await Promise.all([
-        api.getOverview(slug),
-        api.getPainPoints(slug),
-        api.getCompetitors(slug),
-        api.getDealLikelihood(slug),
-        api.getSentiment(slug),
-        api.getScorecard(slug),
-        api.getScorecardCorrelation(slug),
+        api.getOverview(slug, rep),
+        api.getPainPoints(slug, rep),
+        api.getCompetitors(slug, rep),
+        api.getDealLikelihood(slug, rep),
+        api.getSentiment(slug, rep),
+        api.getScorecard(slug, rep),
+        api.getScorecardCorrelation(slug, rep),
       ]);
       setOverview(o);
       setPainPoints(pp.counts || {});
@@ -43,12 +45,18 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     api.listSchemas().then(setSchemas).catch(console.error);
+    api.getReps().then(setReps).catch(console.error);
     loadData();
   }, []);
 
   const handleCustomerChange = (slug: string) => {
     setSelectedCustomer(slug);
-    loadData(slug || undefined);
+    loadData(slug || undefined, selectedRep || undefined);
+  };
+
+  const handleRepChange = (rep: string) => {
+    setSelectedRep(rep);
+    loadData(selectedCustomer || undefined, rep || undefined);
   };
 
   if (loading && !overview)
@@ -58,18 +66,34 @@ export default function AnalyticsPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-ff-text-bright">Analytics</h1>
-        <select
-          value={selectedCustomer}
-          onChange={(e) => handleCustomerChange(e.target.value)}
-          className="ff-select"
-        >
-          <option value="">All customers</option>
-          {schemas.map((s) => (
-            <option key={s.slug} value={s.slug}>
-              {s.display_name}
-            </option>
-          ))}
-        </select>
+        <div className="flex gap-3">
+          <select
+            value={selectedCustomer}
+            onChange={(e) => handleCustomerChange(e.target.value)}
+            className="ff-select"
+          >
+            <option value="">All customers</option>
+            {schemas.map((s) => (
+              <option key={s.slug} value={s.slug}>
+                {s.display_name}
+              </option>
+            ))}
+          </select>
+          {reps.length > 0 && (
+            <select
+              value={selectedRep}
+              onChange={(e) => handleRepChange(e.target.value)}
+              className="ff-select"
+            >
+              <option value="">All reps</option>
+              {reps.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
       {/* Summary Row */}

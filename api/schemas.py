@@ -22,6 +22,8 @@ class CallCreate(BaseModel):
     date: datetime
     duration_seconds: Optional[int] = None
     participants: List[str] = []
+    rep_name: Optional[str] = None
+    rep_email: Optional[str] = None
     raw_transcript: str
     gong_call_id: Optional[str] = None
 
@@ -34,6 +36,8 @@ class CallOut(BaseModel):
     date: datetime
     duration_seconds: Optional[int]
     participants: List[str]
+    rep_name: Optional[str] = None
+    rep_email: Optional[str] = None
     status: str
     error_message: Optional[str] = None
     processed_at: Optional[datetime]

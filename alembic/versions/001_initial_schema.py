@@ -52,6 +52,8 @@ def upgrade() -> None:
         sa.Column("date", sa.DateTime(), nullable=False),
         sa.Column("duration_seconds", sa.Integer(), nullable=True),
         sa.Column("participants", JSONB(), nullable=True),
+        sa.Column("rep_name", sa.String(), nullable=True),
+        sa.Column("rep_email", sa.String(), nullable=True),
         sa.Column("raw_transcript", sa.Text(), nullable=False),
         sa.Column("status", sa.String(), nullable=False, server_default="pending"),
         sa.Column("error_message", sa.Text(), nullable=True),

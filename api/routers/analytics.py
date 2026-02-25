@@ -4,19 +4,25 @@ from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user
 from ..database import get_db
 from ..models import Call, CallField, CallScore, CallSummary, Customer, User
 from ..schemas import AnalyticsResponse, FieldDistribution, ScorecardOverview, SkillAverage
-from ..templates import DEFAULT_SCORECARD_SKILLS, SCORECARD_CATEGORIES
+from ..templates import SCORECARD_CATEGORIES
 
 router = APIRouter()
 
 
-def _user_call_query(db: Session, user: Optional[User], customer_slug: Optional[str] = None):
-    """Build a base Call query scoped to the current user and optional customer."""
+def _user_call_query(
+    db: Session,
+    user: Optional[User],
+    customer_slug: Optional[str] = None,
+    rep_name: Optional[str] = None,
+):
+    """Build a base Call query scoped to the current user, optional customer, and optional rep."""
     query = db.query(Call)
 
     if user:
@@ -31,23 +37,76 @@ def _user_call_query(db: Session, user: Optional[User], customer_slug: Optional[
         if customer:
             query = query.filter(Call.customer_id == customer.id)
 
+    if rep_name:
+        query = query.filter(Call.rep_name == rep_name)
+
     return query
+
+
+def _call_id_subquery(
+    db: Session,
+    user: Optional[User],
+    customer_slug: Optional[str] = None,
+    rep_name: Optional[str] = None,
+    processed_only: bool = False,
+):
+    """Return a subquery of call IDs (stays in SQL, no Python round-trip)."""
+    q = db.query(Call.id)
+
+    if user:
+        user_customer_ids = db.query(Customer.id).filter(Customer.user_id == user.id)
+        q = q.filter(Call.customer_id.in_(user_customer_ids))
+
+    if customer_slug:
+        cust_query = db.query(Customer).filter(Customer.slug == customer_slug)
+        if user:
+            cust_query = cust_query.filter(Customer.user_id == user.id)
+        customer = cust_query.first()
+        if customer:
+            q = q.filter(Call.customer_id == customer.id)
+
+    if rep_name:
+        q = q.filter(Call.rep_name == rep_name)
+
+    if processed_only:
+        q = q.filter(Call.processed_at.isnot(None))
+
+    return q.subquery()
+
+
+@router.get("/reps")
+def list_reps(
+    customer_slug: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    """List distinct rep names for the current user's calls."""
+    query = _user_call_query(db, user, customer_slug)
+    reps = (
+        query.filter(Call.rep_name.isnot(None))
+        .with_entities(Call.rep_name)
+        .distinct()
+        .order_by(Call.rep_name)
+        .all()
+    )
+    return [r[0] for r in reps]
 
 
 @router.get("/overview", response_model=AnalyticsResponse)
 def analytics_overview(
     customer_slug: Optional[str] = None,
+    rep_name: Optional[str] = None,
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(get_current_user),
 ):
     """High-level analytics: total calls, field distributions."""
-    call_query = _user_call_query(db, user, customer_slug)
+    call_query = _user_call_query(db, user, customer_slug, rep_name)
 
     total = call_query.count()
     chunked = call_query.filter(Call.processed_at.isnot(None)).count()
 
-    call_ids = [c.id for c in call_query.all()]
-    fields = db.query(CallField).filter(CallField.call_id.in_(call_ids)).all() if call_ids else []
+    call_ids_sq = _call_id_subquery(db, user, customer_slug, rep_name)
+    fields = db.query(CallField).filter(CallField.call_id.in_(db.query(call_ids_sq))).all()
 
     distributions: Dict[str, Counter] = {}
     for field in fields:
@@ -79,32 +138,34 @@ def analytics_overview(
 @router.get("/pain-points")
 def pain_point_analysis(
     customer_slug: Optional[str] = None,
+    rep_name: Optional[str] = None,
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(get_current_user),
 ):
-    return _field_frequency(db, "pain_points", user, customer_slug)
+    return _field_frequency(db, "pain_points", user, customer_slug, rep_name)
 
 
 @router.get("/competitors")
 def competitor_analysis(
     customer_slug: Optional[str] = None,
+    rep_name: Optional[str] = None,
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(get_current_user),
 ):
-    return _field_frequency(db, "competitor_mentions", user, customer_slug)
+    return _field_frequency(db, "competitor_mentions", user, customer_slug, rep_name)
 
 
 @router.get("/deal-likelihood")
 def deal_likelihood_distribution(
     customer_slug: Optional[str] = None,
+    rep_name: Optional[str] = None,
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(get_current_user),
 ):
-    call_query = _user_call_query(db, user, customer_slug)
-    call_ids = db.query(Call.id).filter(Call.id.in_([c.id for c in call_query.all()]))
+    call_ids_sq = _call_id_subquery(db, user, customer_slug, rep_name)
 
     summaries = db.query(CallSummary).filter(
-        CallSummary.call_id.in_(call_ids),
+        CallSummary.call_id.in_(db.query(call_ids_sq)),
         CallSummary.deal_likelihood.isnot(None),
     ).all()
     scores = [s.deal_likelihood for s in summaries]
@@ -133,14 +194,14 @@ def deal_likelihood_distribution(
 @router.get("/sentiment")
 def sentiment_distribution(
     customer_slug: Optional[str] = None,
+    rep_name: Optional[str] = None,
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(get_current_user),
 ):
-    call_query = _user_call_query(db, user, customer_slug)
-    call_ids = db.query(Call.id).filter(Call.id.in_([c.id for c in call_query.all()]))
+    call_ids_sq = _call_id_subquery(db, user, customer_slug, rep_name)
 
     summaries = db.query(CallSummary).filter(
-        CallSummary.call_id.in_(call_ids),
+        CallSummary.call_id.in_(db.query(call_ids_sq)),
         CallSummary.overall_sentiment.isnot(None),
     ).all()
     counter = Counter(s.overall_sentiment for s in summaries)
@@ -150,45 +211,55 @@ def sentiment_distribution(
 @router.get("/scorecard", response_model=ScorecardOverview)
 def scorecard_analytics(
     customer_slug: Optional[str] = None,
+    rep_name: Optional[str] = None,
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(get_current_user),
 ):
     """Aggregate scorecard: average score per skill across all scored calls."""
-    call_query = _user_call_query(db, user, customer_slug)
-    call_ids = [c.id for c in call_query.filter(Call.processed_at.isnot(None)).all()]
+    call_ids_sq = _call_id_subquery(db, user, customer_slug, rep_name, processed_only=True)
 
-    if not call_ids:
+    # SQL aggregation instead of loading all rows into Python
+    rows = (
+        db.query(
+            CallScore.skill_name,
+            CallScore.skill_category,
+            func.avg(CallScore.score).label("avg_score"),
+            func.sum(case((CallScore.present == True, 1), else_=0)).label("times_present"),
+            func.count().label("total"),
+        )
+        .filter(CallScore.call_id.in_(db.query(call_ids_sq)))
+        .group_by(CallScore.skill_name, CallScore.skill_category)
+        .all()
+    )
+
+    if not rows:
         return ScorecardOverview(
             skill_averages=[],
             total_scored_calls=0,
             categories=[{"key": c["key"], "label": c["label"]} for c in SCORECARD_CATEGORIES],
         )
 
-    scores = db.query(CallScore).filter(CallScore.call_id.in_(call_ids)).all()
+    # Count distinct scored calls
+    scored_count = (
+        db.query(func.count(func.distinct(CallScore.call_id)))
+        .filter(CallScore.call_id.in_(db.query(call_ids_sq)))
+        .scalar()
+    )
 
-    # Group by skill
-    skill_data: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"scores": [], "present_count": 0, "category": ""})
-    scored_call_ids = set()
-    for s in scores:
-        skill_data[s.skill_name]["scores"].append(s.score)
-        skill_data[s.skill_name]["category"] = s.skill_category
-        if s.present:
-            skill_data[s.skill_name]["present_count"] += 1
-        scored_call_ids.add(s.call_id)
-
-    skill_averages = []
-    for skill_name, data in sorted(skill_data.items()):
-        skill_averages.append(SkillAverage(
-            skill_name=skill_name,
-            skill_category=data["category"],
-            avg_score=round(sum(data["scores"]) / len(data["scores"]), 1),
-            times_present=data["present_count"],
-            total_calls=len(data["scores"]),
-        ))
+    skill_averages = [
+        SkillAverage(
+            skill_name=row.skill_name,
+            skill_category=row.skill_category,
+            avg_score=round(float(row.avg_score), 1),
+            times_present=int(row.times_present),
+            total_calls=int(row.total),
+        )
+        for row in rows
+    ]
 
     return ScorecardOverview(
         skill_averages=skill_averages,
-        total_scored_calls=len(scored_call_ids),
+        total_scored_calls=scored_count or 0,
         categories=[{"key": c["key"], "label": c["label"]} for c in SCORECARD_CATEGORIES],
     )
 
@@ -196,75 +267,69 @@ def scorecard_analytics(
 @router.get("/scorecard/correlation")
 def scorecard_correlation(
     customer_slug: Optional[str] = None,
+    rep_name: Optional[str] = None,
     db: Session = Depends(get_db),
     user: Optional[User] = Depends(get_current_user),
 ):
     """Which skills correlate with higher deal likelihood?"""
-    call_query = _user_call_query(db, user, customer_slug)
-    call_ids = [c.id for c in call_query.filter(Call.processed_at.isnot(None)).all()]
+    call_ids_sq = _call_id_subquery(db, user, customer_slug, rep_name, processed_only=True)
 
-    if not call_ids:
-        return {"correlations": [], "total_calls": 0}
+    # SQL join: scores + summaries, grouped by skill
+    rows = (
+        db.query(
+            CallScore.skill_name,
+            func.avg(case((CallScore.present == True, CallSummary.deal_likelihood))).label("avg_when_present"),
+            func.avg(case((CallScore.present == False, CallSummary.deal_likelihood))).label("avg_when_absent"),
+            func.sum(case((CallScore.present == True, 1), else_=0)).label("calls_present"),
+            func.sum(case((CallScore.present == False, 1), else_=0)).label("calls_absent"),
+        )
+        .join(CallSummary, CallScore.call_id == CallSummary.call_id)
+        .filter(
+            CallScore.call_id.in_(db.query(call_ids_sq)),
+            CallSummary.deal_likelihood.isnot(None),
+        )
+        .group_by(CallScore.skill_name)
+        .all()
+    )
 
-    # Get deal likelihoods
-    summaries = db.query(CallSummary).filter(
-        CallSummary.call_id.in_(call_ids),
-        CallSummary.deal_likelihood.isnot(None),
-    ).all()
-    deal_map = {s.call_id: s.deal_likelihood for s in summaries}
-
-    if not deal_map:
-        return {"correlations": [], "total_calls": 0}
-
-    # Get scores for calls that have deal likelihood
-    scores = db.query(CallScore).filter(
-        CallScore.call_id.in_(list(deal_map.keys())),
-    ).all()
-
-    # For each skill: avg deal likelihood when present vs absent
-    skill_present: Dict[str, List[float]] = defaultdict(list)
-    skill_absent: Dict[str, List[float]] = defaultdict(list)
-    for s in scores:
-        if s.call_id not in deal_map:
-            continue
-        dl = deal_map[s.call_id]
-        if s.present:
-            skill_present[s.skill_name].append(dl)
-        else:
-            skill_absent[s.skill_name].append(dl)
+    total_calls = (
+        db.query(func.count(func.distinct(CallScore.call_id)))
+        .join(CallSummary, CallScore.call_id == CallSummary.call_id)
+        .filter(
+            CallScore.call_id.in_(db.query(call_ids_sq)),
+            CallSummary.deal_likelihood.isnot(None),
+        )
+        .scalar()
+    ) or 0
 
     correlations = []
-    for skill_name in sorted(set(list(skill_present.keys()) + list(skill_absent.keys()))):
-        present_deals = skill_present.get(skill_name, [])
-        absent_deals = skill_absent.get(skill_name, [])
-        avg_when_present = round(sum(present_deals) / len(present_deals), 1) if present_deals else None
-        avg_when_absent = round(sum(absent_deals) / len(absent_deals), 1) if absent_deals else None
+    for row in rows:
+        avg_p = round(float(row.avg_when_present), 1) if row.avg_when_present else None
+        avg_a = round(float(row.avg_when_absent), 1) if row.avg_when_absent else None
         correlations.append({
-            "skill_name": skill_name,
-            "avg_deal_when_present": avg_when_present,
-            "avg_deal_when_absent": avg_when_absent,
-            "lift": round(avg_when_present - avg_when_absent, 1) if avg_when_present and avg_when_absent else None,
-            "calls_present": len(present_deals),
-            "calls_absent": len(absent_deals),
+            "skill_name": row.skill_name,
+            "avg_deal_when_present": avg_p,
+            "avg_deal_when_absent": avg_a,
+            "lift": round(avg_p - avg_a, 1) if avg_p is not None and avg_a is not None else None,
+            "calls_present": int(row.calls_present),
+            "calls_absent": int(row.calls_absent),
         })
 
-    # Sort by lift descending
     correlations.sort(key=lambda x: x.get("lift") or 0, reverse=True)
-
-    return {"correlations": correlations, "total_calls": len(deal_map)}
+    return {"correlations": correlations, "total_calls": total_calls}
 
 
 def _field_frequency(
-    db: Session, field_name: str, user: Optional[User] = None, customer_slug: Optional[str] = None
+    db: Session, field_name: str, user: Optional[User] = None,
+    customer_slug: Optional[str] = None, rep_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get frequency counts for a list-type field."""
-    call_query = _user_call_query(db, user, customer_slug)
-    call_ids = [c.id for c in call_query.all()]
+    call_ids_sq = _call_id_subquery(db, user, customer_slug, rep_name)
 
     fields = db.query(CallField).filter(
         CallField.field_name == field_name,
-        CallField.call_id.in_(call_ids),
-    ).all() if call_ids else []
+        CallField.call_id.in_(db.query(call_ids_sq)),
+    ).all()
 
     counter: Counter = Counter()
     for field in fields:
