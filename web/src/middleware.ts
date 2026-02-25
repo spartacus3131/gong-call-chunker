@@ -1,43 +1,30 @@
-import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
-export async function middleware(req: NextRequest) {
+export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Allow auth routes and static files
+  // Allow auth routes, static files, and health checks
   if (
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/_next") ||
+    pathname.startsWith("/api/v1") ||
     pathname === "/favicon.ico"
   ) {
     return NextResponse.next();
   }
 
-  const token = await getToken({
-    req,
-    secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
-  });
+  // Check for the session cookie (next-auth v5 uses authjs prefix)
+  const hasSession =
+    req.cookies.has("authjs.session-token") ||
+    req.cookies.has("__Secure-authjs.session-token") ||
+    req.cookies.has("next-auth.session-token") ||
+    req.cookies.has("__Secure-next-auth.session-token");
 
   // If not authenticated, redirect to sign-in
-  if (!token) {
+  if (!hasSession) {
     const signInUrl = new URL("/api/auth/signin", req.url);
-    signInUrl.searchParams.set("callbackUrl", req.url);
+    signInUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(signInUrl);
-  }
-
-  // For API proxy requests, inject the JWT as Authorization header
-  if (pathname.startsWith("/api/v1")) {
-    const headers = new Headers(req.headers);
-    // Pass the session token to the backend
-    const sessionToken =
-      req.cookies.get("__Secure-authjs.session-token")?.value ||
-      req.cookies.get("authjs.session-token")?.value ||
-      req.cookies.get("__Secure-next-auth.session-token")?.value ||
-      req.cookies.get("next-auth.session-token")?.value;
-    if (sessionToken) {
-      headers.set("Authorization", `Bearer ${sessionToken}`);
-    }
-    return NextResponse.next({ request: { headers } });
   }
 
   return NextResponse.next();
