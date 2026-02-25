@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from ..auth import get_current_user
 from ..database import get_db
-from ..models import Call, CallChunk, CallField, CallSummary, Customer, User
+from ..models import Call, CallChunk, CallField, CallScore, CallSummary, Customer, User
+from ..templates import DEFAULT_SCORECARD_SKILLS
 from ..schemas import CallCreate, CallDetail, CallOut, GongSyncRequest
 from src.call_chunker import CallChunker
 from src.schema_loader import list_customers
@@ -169,6 +170,7 @@ def chunk_call(
             customer_slug=customer.slug,
             title=call.title,
             participants=call.participants,
+            scorecard_skills=DEFAULT_SCORECARD_SKILLS,
         )
     except Exception as e:
         call.status = "failed"
@@ -179,10 +181,11 @@ def chunk_call(
             detail=f"Chunking failed: {e}. The call has been marked as 'failed' and can be retried.",
         )
 
-    # Clear existing chunks/fields if re-processing
+    # Clear existing chunks/fields/scores if re-processing
     db.query(CallChunk).filter(CallChunk.call_id == call_id).delete()
     db.query(CallField).filter(CallField.call_id == call_id).delete()
     db.query(CallSummary).filter(CallSummary.call_id == call_id).delete()
+    db.query(CallScore).filter(CallScore.call_id == call_id).delete()
 
     # Store extracted fields
     for field_name, field_value in result.get("fields", {}).items():
@@ -215,6 +218,17 @@ def chunk_call(
         follow_up_date=summary_data.get("follow_up_date"),
         summary_text=summary_data.get("summary_text"),
     ))
+
+    # Store scorecard scores
+    for score_data in result.get("scorecard", []):
+        db.add(CallScore(
+            call_id=call_id,
+            skill_name=score_data.get("skill_name", ""),
+            skill_category=score_data.get("skill_category", ""),
+            score=score_data.get("score", 1),
+            evidence=score_data.get("evidence"),
+            present=score_data.get("present", False),
+        ))
 
     call.status = "chunked"
     call.processed_at = datetime.utcnow()

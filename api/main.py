@@ -14,7 +14,7 @@ from .auth import get_current_user
 from .database import get_db
 from .models import User
 from .routers import analytics, calls, chunks, schemas
-from .templates import get_template, list_templates
+from .templates import DEFAULT_SCORECARD_SKILLS, SCORECARD_CATEGORIES, get_template, list_templates
 
 app = FastAPI(
     title="Gong Call Chunker",
@@ -100,3 +100,15 @@ def get_template_detail(industry: str):
         from fastapi import HTTPException
         raise HTTPException(404, f"No template found for: {industry}")
     return template
+
+
+# --- Scorecard skills endpoint ---
+
+
+@app.get("/api/v1/scorecard/skills")
+def get_scorecard_skills():
+    """Get the default scorecard skills and categories."""
+    return {
+        "skills": DEFAULT_SCORECARD_SKILLS,
+        "categories": [{"key": c["key"], "label": c["label"], "description": c["description"]} for c in SCORECARD_CATEGORIES],
+    }

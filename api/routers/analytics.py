@@ -1,15 +1,16 @@
 """Analytics router — aggregate queries across chunked calls."""
 
-from collections import Counter
-from typing import Any, Dict, Optional
+from collections import Counter, defaultdict
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user
 from ..database import get_db
-from ..models import Call, CallField, CallSummary, Customer, User
-from ..schemas import AnalyticsResponse, FieldDistribution
+from ..models import Call, CallField, CallScore, CallSummary, Customer, User
+from ..schemas import AnalyticsResponse, FieldDistribution, ScorecardOverview, SkillAverage
+from ..templates import DEFAULT_SCORECARD_SKILLS, SCORECARD_CATEGORIES
 
 router = APIRouter()
 
@@ -144,6 +145,113 @@ def sentiment_distribution(
     ).all()
     counter = Counter(s.overall_sentiment for s in summaries)
     return {"distribution": dict(counter), "total": len(summaries)}
+
+
+@router.get("/scorecard", response_model=ScorecardOverview)
+def scorecard_analytics(
+    customer_slug: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    """Aggregate scorecard: average score per skill across all scored calls."""
+    call_query = _user_call_query(db, user, customer_slug)
+    call_ids = [c.id for c in call_query.filter(Call.processed_at.isnot(None)).all()]
+
+    if not call_ids:
+        return ScorecardOverview(
+            skill_averages=[],
+            total_scored_calls=0,
+            categories=[{"key": c["key"], "label": c["label"]} for c in SCORECARD_CATEGORIES],
+        )
+
+    scores = db.query(CallScore).filter(CallScore.call_id.in_(call_ids)).all()
+
+    # Group by skill
+    skill_data: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"scores": [], "present_count": 0, "category": ""})
+    scored_call_ids = set()
+    for s in scores:
+        skill_data[s.skill_name]["scores"].append(s.score)
+        skill_data[s.skill_name]["category"] = s.skill_category
+        if s.present:
+            skill_data[s.skill_name]["present_count"] += 1
+        scored_call_ids.add(s.call_id)
+
+    skill_averages = []
+    for skill_name, data in sorted(skill_data.items()):
+        skill_averages.append(SkillAverage(
+            skill_name=skill_name,
+            skill_category=data["category"],
+            avg_score=round(sum(data["scores"]) / len(data["scores"]), 1),
+            times_present=data["present_count"],
+            total_calls=len(data["scores"]),
+        ))
+
+    return ScorecardOverview(
+        skill_averages=skill_averages,
+        total_scored_calls=len(scored_call_ids),
+        categories=[{"key": c["key"], "label": c["label"]} for c in SCORECARD_CATEGORIES],
+    )
+
+
+@router.get("/scorecard/correlation")
+def scorecard_correlation(
+    customer_slug: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    """Which skills correlate with higher deal likelihood?"""
+    call_query = _user_call_query(db, user, customer_slug)
+    call_ids = [c.id for c in call_query.filter(Call.processed_at.isnot(None)).all()]
+
+    if not call_ids:
+        return {"correlations": [], "total_calls": 0}
+
+    # Get deal likelihoods
+    summaries = db.query(CallSummary).filter(
+        CallSummary.call_id.in_(call_ids),
+        CallSummary.deal_likelihood.isnot(None),
+    ).all()
+    deal_map = {s.call_id: s.deal_likelihood for s in summaries}
+
+    if not deal_map:
+        return {"correlations": [], "total_calls": 0}
+
+    # Get scores for calls that have deal likelihood
+    scores = db.query(CallScore).filter(
+        CallScore.call_id.in_(list(deal_map.keys())),
+    ).all()
+
+    # For each skill: avg deal likelihood when present vs absent
+    skill_present: Dict[str, List[float]] = defaultdict(list)
+    skill_absent: Dict[str, List[float]] = defaultdict(list)
+    for s in scores:
+        if s.call_id not in deal_map:
+            continue
+        dl = deal_map[s.call_id]
+        if s.present:
+            skill_present[s.skill_name].append(dl)
+        else:
+            skill_absent[s.skill_name].append(dl)
+
+    correlations = []
+    for skill_name in sorted(set(list(skill_present.keys()) + list(skill_absent.keys()))):
+        present_deals = skill_present.get(skill_name, [])
+        absent_deals = skill_absent.get(skill_name, [])
+        avg_when_present = round(sum(present_deals) / len(present_deals), 1) if present_deals else None
+        avg_when_absent = round(sum(absent_deals) / len(absent_deals), 1) if absent_deals else None
+        correlations.append({
+            "skill_name": skill_name,
+            "avg_deal_when_present": avg_when_present,
+            "avg_deal_when_absent": avg_when_absent,
+            "lift": round(avg_when_present - avg_when_absent, 1) if avg_when_present and avg_when_absent else None,
+            "calls_present": len(present_deals),
+            "calls_absent": len(absent_deals),
+        })
+
+    # Sort by lift descending
+    correlations.sort(key=lambda x: x.get("lift") or 0, reverse=True)
+
+    return {"correlations": correlations, "total_calls": len(deal_map)}
 
 
 def _field_frequency(

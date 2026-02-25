@@ -93,8 +93,21 @@ def upgrade() -> None:
         sa.Column("summary_text", sa.Text(), nullable=True),
     )
 
+    # Call scores table (sales skills scorecard)
+    op.create_table(
+        "call_scores",
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("call_id", sa.String(), sa.ForeignKey("calls.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("skill_name", sa.String(), nullable=False),
+        sa.Column("skill_category", sa.String(), nullable=False),
+        sa.Column("score", sa.Integer(), nullable=False),
+        sa.Column("evidence", sa.Text(), nullable=True),
+        sa.Column("present", sa.Boolean(), nullable=False, server_default="false"),
+    )
+
 
 def downgrade() -> None:
+    op.drop_table("call_scores")
     op.drop_table("call_summaries")
     op.drop_table("call_fields")
     op.drop_table("call_chunks")

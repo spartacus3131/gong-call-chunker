@@ -21,6 +21,14 @@ from .transcript_parser import entries_to_text, normalize_transcript
 
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
+# Import scorecard skills for tool schema generation
+try:
+    from api.templates import DEFAULT_SCORECARD_SKILLS, SCORECARD_CATEGORIES
+except ImportError:
+    # Fallback if running outside the API context
+    DEFAULT_SCORECARD_SKILLS = []
+    SCORECARD_CATEGORIES = []
+
 
 class CallChunker:
     """Chunks call transcripts into structured, queryable data."""
@@ -34,23 +42,27 @@ class CallChunker:
         customer_slug: str,
         title: str = "",
         participants: Optional[List[str]] = None,
+        scorecard_skills: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Chunk a call transcript using a customer's extraction schema.
 
         Uses Claude tool use to get guaranteed structured JSON output.
         The tool schema is built dynamically from the customer's YAML config.
+
+        If scorecard_skills is provided, the tool schema will include a scorecard
+        section that scores each skill on a 1-5 scale with evidence quotes.
         """
         schema = load_customer_schema(customer_slug)
         transcript_text = entries_to_text(transcript_entries)
 
-        system_prompt = self._build_system_prompt(schema)
+        system_prompt = self._build_system_prompt(schema, scorecard_skills)
         user_prompt = self._build_user_prompt(
             schema=schema,
             transcript=transcript_text,
             title=title,
             participants=participants or [],
         )
-        tool = self._build_extraction_tool(schema)
+        tool = self._build_extraction_tool(schema, scorecard_skills)
 
         response = self.anthropic.messages.create(
             model=CLAUDE_MODEL,
@@ -81,12 +93,17 @@ class CallChunker:
         entries = normalize_transcript(source, raw_transcript, format_hint)
         return self.chunk_call(entries, customer_slug, title, participants)
 
-    def _build_extraction_tool(self, schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_extraction_tool(
+        self, schema: Dict[str, Any], scorecard_skills: Optional[List[Dict[str, str]]] = None
+    ) -> Dict[str, Any]:
         """Build a Claude tool definition from customer schema.
 
         This is the key innovation — the tool's input_schema is generated
         dynamically from the YAML config, so Claude is forced to return
         exactly the fields the customer defined.
+
+        If scorecard_skills is provided, adds a `scorecard` property that
+        scores each skill 1-5 with evidence.
         """
         extraction = schema.get("extraction_schema", {})
 
@@ -96,6 +113,160 @@ class CallChunker:
             field_schema = self._field_to_json_schema(field)
             field_properties[field["name"]] = field_schema
 
+        properties = {
+            "fields": {
+                "type": "object",
+                "description": "Extracted field values from the call",
+                "properties": field_properties,
+            },
+            "chunks": {
+                "type": "object",
+                "properties": {
+                    "topics": {
+                        "type": "array",
+                        "description": "Major discussion topics (5-8 per call)",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "timestamp_start": {"type": "string"},
+                                "timestamp_end": {"type": "string"},
+                                "summary": {"type": "string"},
+                                "relevance_to_sale": {"type": "string"},
+                            },
+                            "required": ["title", "summary"],
+                        },
+                    },
+                    "insights": {
+                        "type": "array",
+                        "description": "Specific customer insights (2-3 per topic)",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "parent_topic": {"type": "string"},
+                                "insight": {"type": "string"},
+                                "sentiment": {
+                                    "type": "string",
+                                    "enum": ["positive", "neutral", "negative"],
+                                },
+                                "action_item": {"type": ["string", "null"]},
+                            },
+                            "required": ["parent_topic", "insight", "sentiment"],
+                        },
+                    },
+                    "quotes": {
+                        "type": "array",
+                        "description": "Verbatim notable quotes (5-10 per call)",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "quote": {"type": "string"},
+                                "speaker": {"type": "string"},
+                                "context": {"type": "string"},
+                                "sentiment": {
+                                    "type": "string",
+                                    "enum": ["positive", "neutral", "negative"],
+                                },
+                                "tags": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                            },
+                            "required": ["quote", "speaker"],
+                        },
+                    },
+                },
+                "required": ["topics", "insights", "quotes"],
+            },
+            "summary": {
+                "type": "object",
+                "properties": {
+                    "overall_sentiment": {
+                        "type": "string",
+                        "enum": ["positive", "neutral", "negative"],
+                    },
+                    "deal_likelihood": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "description": "1 = very unlikely, 10 = certain to close",
+                    },
+                    "next_steps": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "follow_up_date": {"type": ["string", "null"]},
+                    "summary_text": {
+                        "type": "string",
+                        "description": "2-3 sentence overview of the call",
+                    },
+                },
+                "required": [
+                    "overall_sentiment",
+                    "deal_likelihood",
+                    "next_steps",
+                    "summary_text",
+                ],
+            },
+        }
+        required = ["fields", "chunks", "summary"]
+
+        # Add scorecard if skills are provided
+        if scorecard_skills:
+            skill_items = []
+            for skill in scorecard_skills:
+                skill_items.append({
+                    "type": "object",
+                    "properties": {
+                        "skill_name": {
+                            "type": "string",
+                            "const": skill["skill_name"],
+                        },
+                        "skill_category": {
+                            "type": "string",
+                            "const": skill["skill_category"],
+                        },
+                        "present": {
+                            "type": "boolean",
+                            "description": f"Was this skill demonstrated? {skill['description']}",
+                        },
+                        "score": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 5,
+                            "description": "1=poor, 2=below avg, 3=average, 4=good, 5=excellent. Score 1 if not present.",
+                        },
+                        "evidence": {
+                            "type": ["string", "null"],
+                            "description": "Brief quote or explanation from the call supporting this score. Null if skill was not present.",
+                        },
+                    },
+                    "required": ["skill_name", "skill_category", "present", "score", "evidence"],
+                })
+
+            properties["scorecard"] = {
+                "type": "array",
+                "description": (
+                    "Score each sales skill based on the call. "
+                    "Rate 1-5 (1=poor/absent, 5=excellent). "
+                    "Include a brief evidence quote for skills that were present."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "skill_name": {"type": "string"},
+                        "skill_category": {"type": "string"},
+                        "present": {"type": "boolean"},
+                        "score": {"type": "integer", "minimum": 1, "maximum": 5},
+                        "evidence": {"type": ["string", "null"]},
+                    },
+                    "required": ["skill_name", "skill_category", "present", "score", "evidence"],
+                },
+                "minItems": len(scorecard_skills),
+                "maxItems": len(scorecard_skills),
+            }
+            required.append("scorecard")
+
         return {
             "name": "extract_call_intelligence",
             "description": (
@@ -104,103 +275,8 @@ class CallChunker:
             ),
             "input_schema": {
                 "type": "object",
-                "properties": {
-                    "fields": {
-                        "type": "object",
-                        "description": "Extracted field values from the call",
-                        "properties": field_properties,
-                    },
-                    "chunks": {
-                        "type": "object",
-                        "properties": {
-                            "topics": {
-                                "type": "array",
-                                "description": "Major discussion topics (5-8 per call)",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "title": {"type": "string"},
-                                        "timestamp_start": {"type": "string"},
-                                        "timestamp_end": {"type": "string"},
-                                        "summary": {"type": "string"},
-                                        "relevance_to_sale": {"type": "string"},
-                                    },
-                                    "required": ["title", "summary"],
-                                },
-                            },
-                            "insights": {
-                                "type": "array",
-                                "description": "Specific customer insights (2-3 per topic)",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "parent_topic": {"type": "string"},
-                                        "insight": {"type": "string"},
-                                        "sentiment": {
-                                            "type": "string",
-                                            "enum": ["positive", "neutral", "negative"],
-                                        },
-                                        "action_item": {"type": ["string", "null"]},
-                                    },
-                                    "required": ["parent_topic", "insight", "sentiment"],
-                                },
-                            },
-                            "quotes": {
-                                "type": "array",
-                                "description": "Verbatim notable quotes (5-10 per call)",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "quote": {"type": "string"},
-                                        "speaker": {"type": "string"},
-                                        "context": {"type": "string"},
-                                        "sentiment": {
-                                            "type": "string",
-                                            "enum": ["positive", "neutral", "negative"],
-                                        },
-                                        "tags": {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                        },
-                                    },
-                                    "required": ["quote", "speaker"],
-                                },
-                            },
-                        },
-                        "required": ["topics", "insights", "quotes"],
-                    },
-                    "summary": {
-                        "type": "object",
-                        "properties": {
-                            "overall_sentiment": {
-                                "type": "string",
-                                "enum": ["positive", "neutral", "negative"],
-                            },
-                            "deal_likelihood": {
-                                "type": "number",
-                                "minimum": 1,
-                                "maximum": 10,
-                                "description": "1 = very unlikely, 10 = certain to close",
-                            },
-                            "next_steps": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                            },
-                            "follow_up_date": {"type": ["string", "null"]},
-                            "summary_text": {
-                                "type": "string",
-                                "description": "2-3 sentence overview of the call",
-                            },
-                        },
-                        "required": [
-                            "overall_sentiment",
-                            "deal_likelihood",
-                            "next_steps",
-                            "summary_text",
-                        ],
-                    },
-                },
-                "required": ["fields", "chunks", "summary"],
+                "properties": properties,
+                "required": required,
             },
         }
 
@@ -244,11 +320,13 @@ class CallChunker:
         else:
             return {"type": ["string", "null"], "description": desc}
 
-    def _build_system_prompt(self, schema: Dict[str, Any]) -> str:
+    def _build_system_prompt(
+        self, schema: Dict[str, Any], scorecard_skills: Optional[List[Dict[str, str]]] = None
+    ) -> str:
         customer_name = schema.get("display_name", schema.get("customer", ""))
         industry = schema.get("industry", "")
 
-        return (
+        prompt = (
             f"You are a sales call analyst for {customer_name} ({industry}). "
             f"Your job is to extract structured intelligence from sales call transcripts.\n\n"
             f"Be precise:\n"
@@ -260,6 +338,22 @@ class CallChunker:
             f"- Deal likelihood is 1-10 (1 = very unlikely, 10 = certain)\n"
             f"- Timestamps should match the format in the transcript"
         )
+
+        if scorecard_skills:
+            prompt += (
+                f"\n\n## Sales Skills Scorecard\n"
+                f"Score each of the following sales skills on a 1-5 scale:\n"
+                f"1 = Not demonstrated / Poor\n"
+                f"2 = Below average attempt\n"
+                f"3 = Average / Acceptable\n"
+                f"4 = Good / Above average\n"
+                f"5 = Excellent / Best practice\n\n"
+                f"For each skill, indicate whether it was present (true/false), "
+                f"assign a score (1 if not present), and provide a brief evidence "
+                f"quote or explanation from the call.\n"
+            )
+
+        return prompt
 
     def _build_user_prompt(
         self,

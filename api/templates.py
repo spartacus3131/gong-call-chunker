@@ -1,4 +1,4 @@
-"""Industry templates for onboarding wizard."""
+"""Industry templates for onboarding wizard and default scorecard skills."""
 
 TEMPLATES = {
     "restaurant": {
@@ -67,6 +67,37 @@ TEMPLATES = {
         ],
     },
 }
+
+
+# Default scorecard skills — inspired by Owner.com's 12 skills analysis.
+# Users can customize which skills to score and add their own.
+DEFAULT_SCORECARD_SKILLS = [
+    # Discovery
+    {"skill_name": "ask_about_current_setup", "skill_category": "discovery", "description": "Asked about the prospect's current tools, processes, or setup"},
+    {"skill_name": "ask_about_pain_points", "skill_category": "discovery", "description": "Probed for specific pain points or frustrations"},
+    {"skill_name": "ask_about_goals", "skill_category": "discovery", "description": "Asked about their goals, desired outcomes, or what success looks like"},
+    # Middle of Call
+    {"skill_name": "tailored_pitch", "skill_category": "middle_of_call", "description": "Customized the pitch based on what was learned in discovery"},
+    {"skill_name": "handle_objection", "skill_category": "middle_of_call", "description": "Addressed an objection or concern raised by the prospect"},
+    {"skill_name": "social_proof", "skill_category": "middle_of_call", "description": "Used case studies, testimonials, or data from similar customers"},
+    # Pricing
+    {"skill_name": "confident_pricing", "skill_category": "pricing", "description": "Presented pricing confidently without hesitation or excessive discounting"},
+    {"skill_name": "anchored_to_value", "skill_category": "pricing", "description": "Connected the price to the value or ROI for the prospect"},
+    # End of Call
+    {"skill_name": "clear_next_steps", "skill_category": "end_of_call", "description": "Established clear, specific next steps with a timeline"},
+    {"skill_name": "ask_for_commitment", "skill_category": "end_of_call", "description": "Asked for a commitment, decision, or close"},
+    # Prospect Engagement
+    {"skill_name": "prospect_asked_questions", "skill_category": "prospect_engagement", "description": "The prospect asked substantive questions showing interest"},
+    {"skill_name": "prospect_shared_info", "skill_category": "prospect_engagement", "description": "The prospect voluntarily shared detailed information about their situation"},
+]
+
+SCORECARD_CATEGORIES = [
+    {"key": "discovery", "label": "Discovery", "description": "How well the rep uncovered the prospect's situation"},
+    {"key": "middle_of_call", "label": "Middle of Call", "description": "How effectively the rep pitched and handled objections"},
+    {"key": "pricing", "label": "Pricing", "description": "How pricing was presented and anchored to value"},
+    {"key": "end_of_call", "label": "End of Call", "description": "How the call was wrapped up with clear next steps"},
+    {"key": "prospect_engagement", "label": "Prospect Engagement", "description": "How engaged and forthcoming the prospect was"},
+]
 
 
 def get_template(industry: str) -> dict:

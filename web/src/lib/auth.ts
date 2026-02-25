@@ -12,10 +12,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async jwt({ token, account, profile }) {
       if (account && profile) {
-        token.sub = profile.sub;
-        token.email = profile.email;
-        token.name = profile.name;
-        token.picture = (profile as any).picture;
+        token.sub = profile.sub ?? undefined;
+        token.email = profile.email ?? undefined;
+        token.name = profile.name ?? undefined;
+        token.picture = (profile as any).picture ?? undefined;
       }
       return token;
     },

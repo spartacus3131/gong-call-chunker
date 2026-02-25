@@ -73,6 +73,7 @@ class Call(Base):
     chunks = relationship("CallChunk", back_populates="call", cascade="all, delete-orphan")
     fields = relationship("CallField", back_populates="call", cascade="all, delete-orphan")
     summary = relationship("CallSummary", back_populates="call", uselist=False, cascade="all, delete-orphan")
+    scores = relationship("CallScore", back_populates="call", cascade="all, delete-orphan")
 
 
 class CallChunk(Base):
@@ -99,6 +100,21 @@ class CallField(Base):
     field_type = Column(String, nullable=False)  # "enum", "text", "integer", "boolean", "list"
 
     call = relationship("Call", back_populates="fields")
+
+
+class CallScore(Base):
+    """Individual skill score for a call — one row per skill per call."""
+    __tablename__ = "call_scores"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    call_id = Column(String, ForeignKey("calls.id", ondelete="CASCADE"), nullable=False)
+    skill_name = Column(String, nullable=False)
+    skill_category = Column(String, nullable=False)  # discovery, middle_of_call, pricing, end_of_call, prospect_engagement, general
+    score = Column(Integer, nullable=False)  # 1-5 rating
+    evidence = Column(Text, nullable=True)  # quote or explanation from the call
+    present = Column(Boolean, nullable=False, default=False)  # was this skill demonstrated?
+
+    call = relationship("Call", back_populates="scores")
 
 
 class CallSummary(Base):

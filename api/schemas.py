@@ -42,11 +42,23 @@ class CallOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ScoreOut(BaseModel):
+    id: str
+    skill_name: str
+    skill_category: str
+    score: int
+    evidence: Optional[str]
+    present: bool
+
+    model_config = {"from_attributes": True}
+
+
 class CallDetail(CallOut):
     raw_transcript: str
     chunks: List["ChunkOut"] = []
     fields: List["FieldOut"] = []
     summary: Optional["SummaryOut"] = None
+    scores: List["ScoreOut"] = []
 
 
 # --- Chunks ---
@@ -123,6 +135,21 @@ class CustomerSchema(BaseModel):
     fields: List[SchemaFieldDef]
     chunk_levels: List[Dict[str, Any]]
     call_summary: List[str]
+
+
+# --- Scorecard Analytics ---
+class SkillAverage(BaseModel):
+    skill_name: str
+    skill_category: str
+    avg_score: float
+    times_present: int
+    total_calls: int
+
+
+class ScorecardOverview(BaseModel):
+    skill_averages: List[SkillAverage]
+    total_scored_calls: int
+    categories: List[Dict[str, str]]
 
 
 # --- Gong Sync ---

@@ -12,7 +12,7 @@ export default function CallDetailPage() {
   const [chunking, setChunking] = useState(false);
   const [chunkError, setChunkError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<
-    "chunks" | "transcript" | "fields"
+    "chunks" | "transcript" | "fields" | "scorecard"
   >("chunks");
 
   useEffect(() => {
@@ -157,7 +157,7 @@ export default function CallDetailPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4">
-        {(["chunks", "fields", "transcript"] as const).map((tab) => (
+        {(["chunks", "fields", "scorecard", "transcript"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -171,6 +171,11 @@ export default function CallDetailPage() {
             {tab === "chunks" && call.chunks.length > 0 && (
               <span className="ml-1 text-xs text-ff-text/30">
                 ({call.chunks.length})
+              </span>
+            )}
+            {tab === "scorecard" && call.scores?.length > 0 && (
+              <span className="ml-1 text-xs text-ff-text/30">
+                ({call.scores.filter(s => s.present).length}/{call.scores.length})
               </span>
             )}
           </button>
@@ -306,6 +311,101 @@ export default function CallDetailPage() {
                     </p>
                   </div>
                 ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === "scorecard" && (
+          <>
+            {(!call.scores || call.scores.length === 0) ? (
+              <p className="text-ff-text/50 text-sm">
+                No scorecard data yet. Chunk this call to generate scores.
+              </p>
+            ) : (
+              <div className="space-y-6">
+                {/* Overall score */}
+                {(() => {
+                  const avgScore = call.scores.reduce((sum, s) => sum + s.score, 0) / call.scores.length;
+                  const presentCount = call.scores.filter(s => s.present).length;
+                  return (
+                    <div className="flex gap-6 mb-2">
+                      <div>
+                        <span className="text-xs text-ff-text/40 uppercase tracking-wider">Avg Score</span>
+                        <p className="text-3xl font-bold text-mako-400">{avgScore.toFixed(1)}<span className="text-lg text-ff-text/30">/5</span></p>
+                      </div>
+                      <div>
+                        <span className="text-xs text-ff-text/40 uppercase tracking-wider">Skills Present</span>
+                        <p className="text-3xl font-bold text-ff-text-bright">{presentCount}<span className="text-lg text-ff-text/30">/{call.scores.length}</span></p>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Group by category */}
+                {(() => {
+                  const categories = new Map<string, typeof call.scores>();
+                  call.scores.forEach(s => {
+                    if (!categories.has(s.skill_category)) categories.set(s.skill_category, []);
+                    categories.get(s.skill_category)!.push(s);
+                  });
+                  const categoryLabels: Record<string, string> = {
+                    discovery: "Discovery",
+                    middle_of_call: "Middle of Call",
+                    pricing: "Pricing",
+                    end_of_call: "End of Call",
+                    prospect_engagement: "Prospect Engagement",
+                  };
+                  const categoryColors: Record<string, string> = {
+                    discovery: "border-ff-blue/50",
+                    middle_of_call: "border-mako-500/50",
+                    pricing: "border-ff-gold/50",
+                    end_of_call: "border-purple-500/50",
+                    prospect_engagement: "border-ff-blue/30",
+                  };
+                  return Array.from(categories.entries()).map(([cat, scores]) => (
+                    <div key={cat}>
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-ff-text/50 mb-3">
+                        {categoryLabels[cat] || cat.replace(/_/g, " ")}
+                        <span className="ml-2 text-mako-500">
+                          {(scores.reduce((sum, s) => sum + s.score, 0) / scores.length).toFixed(1)} avg
+                        </span>
+                      </h3>
+                      <div className="space-y-2">
+                        {scores.map((score) => (
+                          <div key={score.id} className={`border-l-2 ${categoryColors[cat] || "border-ff-border"} pl-4 py-2`}>
+                            <div className="flex items-center gap-3">
+                              <span className={`text-sm font-medium ${score.present ? "text-ff-text-bright" : "text-ff-text/30"}`}>
+                                {score.skill_name.replace(/_/g, " ")}
+                              </span>
+                              <div className="flex gap-0.5">
+                                {[1, 2, 3, 4, 5].map(n => (
+                                  <div
+                                    key={n}
+                                    className={`w-5 h-2 rounded-sm ${
+                                      n <= score.score
+                                        ? score.score >= 4 ? "bg-mako-500" : score.score >= 3 ? "bg-ff-gold" : "bg-ff-red/70"
+                                        : "bg-ff-border/30"
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                              <span className="text-xs text-ff-text/30">{score.score}/5</span>
+                              {!score.present && (
+                                <span className="text-[10px] text-ff-red/60 uppercase tracking-wider">Not demonstrated</span>
+                              )}
+                            </div>
+                            {score.evidence && (
+                              <p className="text-xs text-ff-text/50 mt-1 italic">
+                                &ldquo;{score.evidence}&rdquo;
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ));
+                })()}
               </div>
             )}
           </>

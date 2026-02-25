@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, AnalyticsOverview, CustomerConfig } from "@/lib/api";
+import { api, AnalyticsOverview, CustomerConfig, ScorecardOverview, SkillCorrelation } from "@/lib/api";
 
 export default function AnalyticsPage() {
   const [schemas, setSchemas] = useState<CustomerConfig[]>([]);
@@ -11,23 +11,29 @@ export default function AnalyticsPage() {
   const [competitors, setCompetitors] = useState<Record<string, number>>({});
   const [dealLikelihood, setDealLikelihood] = useState<any>(null);
   const [sentiment, setSentiment] = useState<any>(null);
+  const [scorecard, setScorecard] = useState<ScorecardOverview | null>(null);
+  const [correlations, setCorrelations] = useState<SkillCorrelation[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadData = async (slug?: string) => {
     setLoading(true);
     try {
-      const [o, pp, comp, dl, sent] = await Promise.all([
+      const [o, pp, comp, dl, sent, sc, corr] = await Promise.all([
         api.getOverview(slug),
         api.getPainPoints(slug),
         api.getCompetitors(slug),
         api.getDealLikelihood(slug),
         api.getSentiment(slug),
+        api.getScorecard(slug),
+        api.getScorecardCorrelation(slug),
       ]);
       setOverview(o);
       setPainPoints(pp.counts || {});
       setCompetitors(comp.counts || {});
       setDealLikelihood(dl);
       setSentiment(sent);
+      setScorecard(sc);
+      setCorrelations(corr.correlations || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -166,6 +172,128 @@ export default function AnalyticsPage() {
           </div>
         )}
       </div>
+
+      {/* Sales Skills Scorecard */}
+      {scorecard && scorecard.skill_averages.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-lg font-semibold text-ff-text-bright mb-4">
+            Sales Skills Scorecard
+            <span className="text-sm text-ff-text/30 font-normal ml-2">
+              {scorecard.total_scored_calls} calls scored
+            </span>
+          </h2>
+          <div className="grid grid-cols-2 gap-6">
+            {/* Skills by Category */}
+            {scorecard.categories.map((cat) => {
+              const skills = scorecard.skill_averages.filter(
+                (s) => s.skill_category === cat.key
+              );
+              if (skills.length === 0) return null;
+              const catAvg =
+                skills.reduce((sum, s) => sum + s.avg_score, 0) / skills.length;
+              return (
+                <div key={cat.key} className="ff-panel p-6">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-ff-text-bright font-semibold">
+                      {cat.label}
+                    </h3>
+                    <span
+                      className={`text-lg font-bold ${
+                        catAvg >= 4
+                          ? "text-mako-400"
+                          : catAvg >= 3
+                          ? "text-ff-gold"
+                          : "text-ff-red"
+                      }`}
+                    >
+                      {catAvg.toFixed(1)}
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    {skills.map((skill) => (
+                      <div key={skill.skill_name} className="flex items-center gap-3">
+                        <span className="text-xs w-36 text-ff-text/50 truncate capitalize">
+                          {skill.skill_name.replace(/_/g, " ")}
+                        </span>
+                        <div className="flex-1 bg-ff-dark rounded h-4">
+                          <div
+                            className={`rounded h-4 transition-all ${
+                              skill.avg_score >= 4
+                                ? "bg-gradient-to-r from-mako-700 to-mako-500"
+                                : skill.avg_score >= 3
+                                ? "bg-gradient-to-r from-ff-gold/60 to-ff-gold/40"
+                                : "bg-gradient-to-r from-ff-red/60 to-ff-red/40"
+                            }`}
+                            style={{ width: `${(skill.avg_score / 5) * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-sm font-medium w-10 text-right text-ff-text/70">
+                          {skill.avg_score.toFixed(1)}
+                        </span>
+                        <span className="text-[10px] text-ff-text/30 w-16 text-right">
+                          {skill.times_present}/{skill.total_calls}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Skill-Deal Correlation */}
+            {correlations.length > 0 && (
+              <div className="ff-panel p-6 col-span-2">
+                <h3 className="text-ff-text-bright font-semibold mb-1">
+                  Skill Impact on Deal Likelihood
+                </h3>
+                <p className="text-xs text-ff-text/30 mb-4">
+                  Avg deal score when skill is present vs absent. Higher lift = stronger impact on deals.
+                </p>
+                <div className="space-y-2">
+                  {correlations
+                    .filter((c) => c.lift !== null)
+                    .map((c) => (
+                      <div key={c.skill_name} className="flex items-center gap-3">
+                        <span className="text-xs w-40 text-ff-text/50 truncate capitalize">
+                          {c.skill_name.replace(/_/g, " ")}
+                        </span>
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-xs text-ff-text/30 w-20">
+                            Absent: {c.avg_deal_when_absent?.toFixed(1) ?? "N/A"}
+                          </span>
+                          <div className="flex-1 relative h-4 bg-ff-dark rounded">
+                            {c.avg_deal_when_absent != null && (
+                              <div
+                                className="absolute h-4 bg-ff-red/30 rounded-l"
+                                style={{ width: `${(c.avg_deal_when_absent / 10) * 100}%` }}
+                              />
+                            )}
+                            {c.avg_deal_when_present != null && (
+                              <div
+                                className="absolute h-4 bg-mako-500/50 rounded"
+                                style={{ width: `${(c.avg_deal_when_present / 10) * 100}%` }}
+                              />
+                            )}
+                          </div>
+                          <span className="text-xs text-ff-text/30 w-20">
+                            Present: {c.avg_deal_when_present?.toFixed(1) ?? "N/A"}
+                          </span>
+                        </div>
+                        <span
+                          className={`text-sm font-bold w-12 text-right ${
+                            (c.lift ?? 0) > 0 ? "text-mako-400" : "text-ff-red"
+                          }`}
+                        >
+                          {c.lift != null ? (c.lift > 0 ? "+" : "") + c.lift.toFixed(1) : "—"}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* All Field Distributions */}
       {overview && overview.field_distributions.length > 0 && (

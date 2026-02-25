@@ -63,11 +63,21 @@ export interface SummaryOut {
   summary_text: string | null;
 }
 
+export interface ScoreOut {
+  id: string;
+  skill_name: string;
+  skill_category: string;
+  score: number;
+  evidence: string | null;
+  present: boolean;
+}
+
 export interface CallDetail extends CallOut {
   raw_transcript: string;
   chunks: ChunkOut[];
   fields: FieldOut[];
   summary: SummaryOut | null;
+  scores: ScoreOut[];
 }
 
 export interface AnalyticsOverview {
@@ -80,6 +90,29 @@ export interface CustomerConfig {
   slug: string;
   display_name: string;
   config_path: string;
+}
+
+export interface SkillAverage {
+  skill_name: string;
+  skill_category: string;
+  avg_score: number;
+  times_present: number;
+  total_calls: number;
+}
+
+export interface ScorecardOverview {
+  skill_averages: SkillAverage[];
+  total_scored_calls: number;
+  categories: { key: string; label: string }[];
+}
+
+export interface SkillCorrelation {
+  skill_name: string;
+  avg_deal_when_present: number | null;
+  avg_deal_when_absent: number | null;
+  lift: number | null;
+  calls_present: number;
+  calls_absent: number;
 }
 
 export interface IndustryTemplate {
@@ -212,6 +245,20 @@ export const api = {
   getSentiment: (customerSlug?: string) =>
     fetchAPI<any>(
       `/api/v1/analytics/sentiment${
+        customerSlug ? `?customer_slug=${customerSlug}` : ""
+      }`
+    ),
+
+  getScorecard: (customerSlug?: string) =>
+    fetchAPI<ScorecardOverview>(
+      `/api/v1/analytics/scorecard${
+        customerSlug ? `?customer_slug=${customerSlug}` : ""
+      }`
+    ),
+
+  getScorecardCorrelation: (customerSlug?: string) =>
+    fetchAPI<{ correlations: SkillCorrelation[]; total_calls: number }>(
+      `/api/v1/analytics/scorecard/correlation${
         customerSlug ? `?customer_slug=${customerSlug}` : ""
       }`
     ),
