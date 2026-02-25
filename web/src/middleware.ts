@@ -6,6 +6,7 @@ export function middleware(req: NextRequest) {
   // Allow auth routes, static files, and health checks
   if (
     pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/api/debug") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api/v1") ||
     pathname === "/favicon.ico"
