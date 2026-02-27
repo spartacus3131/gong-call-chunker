@@ -4,6 +4,8 @@ Turn sales call transcripts into structured, searchable data. Tell the system wh
 
 **Built for GTM teams.** No coding required to use it — just paste a transcript and click "Chunk."
 
+**Current status:** Production-ready. Deployed on Railway with Google OAuth authentication. Backend JWT auth bridges next-auth sessions to the FastAPI backend via a Next.js API proxy route. All 14 tests pass.
+
 ---
 
 ## What Does It Actually Do?
@@ -250,14 +252,23 @@ If you want your whole team to use this (not just locally on your machine):
 
 ### Security
 
-Set `API_KEYS` in your environment to enable authentication:
+The production auth flow uses Google OAuth via next-auth. Set these in your Railway web service:
+
+```
+AUTH_SECRET=<random 32+ char secret>
+AUTH_GOOGLE_ID=<google oauth client id>
+AUTH_GOOGLE_SECRET=<google oauth client secret>
+NEXT_PUBLIC_API_URL=<your Railway API service URL>
+```
+
+Set `AUTH_SECRET` to the same value as `NEXTAUTH_SECRET` on the API service. The web layer signs short-lived HS256 JWTs from the Google session and forwards them to the backend — the backend verifies them using the shared secret.
+
+The legacy `API_KEYS` / `X-API-Key` path still works for programmatic/script access:
 ```
 API_KEYS=your-secret-key-1,another-key-for-someone-else
 ```
 
-When set, every API request needs an `X-API-Key` header. The web frontend will need to be configured to include this.
-
-When `API_KEYS` is **not** set (default), auth is disabled — fine for local development, not for production.
+When neither `API_KEYS` nor JWT auth is configured, auth is disabled — fine for local development only.
 
 ---
 
